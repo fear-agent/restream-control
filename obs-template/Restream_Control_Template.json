@@ -1,0 +1,4457 @@
+{
+  "name": "Restream Control Template",
+  "groups": [
+    {
+      "prev_ver": 536936450,
+      "name": "2P R1",
+      "uuid": "12382dc2-9a57-42b6-90f8-031b98a2af1c",
+      "id": "group",
+      "versioned_id": "group",
+      "settings": {
+        "id_counter": 0,
+        "custom_size": true,
+        "cx": 916,
+        "cy": 1047,
+        "items": [
+          {
+            "name": "2P R1 Stream",
+            "source_uuid": "a17ce012-ed7f-4eea-b212-0024a000b181",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 2,
+            "group_item_backup": false,
+            "pos": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "pos_rel": {
+              "x": -1.7777777910232544,
+              "y": -1.0
+            },
+            "scale": {
+              "x": 0.7148148417472839,
+              "y": 0.9055555462837219
+            },
+            "scale_rel": {
+              "x": 0.7148148417472839,
+              "y": 0.9055555462837219
+            },
+            "bounds": {
+              "x": 916.0,
+              "y": 747.0
+            },
+            "bounds_rel": {
+              "x": 1.6962963342666626,
+              "y": 1.3833333253860474
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "2P R1 Tracker",
+            "source_uuid": "b5f7c7f3-7a45-4248-a0ae-42e627a86c23",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 3,
+            "group_item_backup": false,
+            "pos": {
+              "x": 0.0,
+              "y": 763.0
+            },
+            "pos_rel": {
+              "x": -1.7777777910232544,
+              "y": 0.4129629135131836
+            },
+            "scale": {
+              "x": 0.2212962955236435,
+              "y": 0.3444444537162781
+            },
+            "scale_rel": {
+              "x": 0.2212962955236435,
+              "y": 0.3444444537162781
+            },
+            "bounds": {
+              "x": 284.0,
+              "y": 284.0
+            },
+            "bounds_rel": {
+              "x": 0.5259259343147278,
+              "y": 0.5259259343147278
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "2P R1 Timer",
+            "source_uuid": "bc171fbf-1d76-42b5-ae13-6d34bc18ab4c",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 4,
+            "group_item_backup": false,
+            "pos": {
+              "x": 312.0,
+              "y": 876.0
+            },
+            "pos_rel": {
+              "x": -1.2000000476837158,
+              "y": 0.6222221851348877
+            },
+            "scale": {
+              "x": 0.2092592567205429,
+              "y": 0.09166666865348816
+            },
+            "scale_rel": {
+              "x": 0.2092592567205429,
+              "y": 0.09166666865348816
+            },
+            "bounds": {
+              "x": 268.0,
+              "y": 76.0
+            },
+            "bounds_rel": {
+              "x": 0.4962962865829468,
+              "y": 0.14074073731899261
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          }
+        ]
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.show_scene_item.2": [],
+        "libobs.hide_scene_item.2": [],
+        "libobs.show_scene_item.3": [],
+        "libobs.hide_scene_item.3": [],
+        "libobs.show_scene_item.4": [],
+        "libobs.hide_scene_item.4": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "2P R2",
+      "uuid": "b4c5b93c-907a-4bb2-b7e3-a842a77f715c",
+      "id": "group",
+      "versioned_id": "group",
+      "settings": {
+        "id_counter": 0,
+        "custom_size": true,
+        "cx": 916,
+        "cy": 1047,
+        "items": [
+          {
+            "name": "2P R2 Stream",
+            "source_uuid": "05a39f8f-2fb9-467c-b692-0e872d02f953",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 5,
+            "group_item_backup": false,
+            "pos": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "pos_rel": {
+              "x": -1.7777777910232544,
+              "y": -1.0
+            },
+            "scale": {
+              "x": 0.7148148417472839,
+              "y": 0.9055555462837219
+            },
+            "scale_rel": {
+              "x": 0.7148148417472839,
+              "y": 0.9055555462837219
+            },
+            "bounds": {
+              "x": 916.0,
+              "y": 747.0
+            },
+            "bounds_rel": {
+              "x": 1.6962963342666626,
+              "y": 1.3833333253860474
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "2P R2 Tracker",
+            "source_uuid": "8557427b-434e-42ce-a6c9-eb5aafc09667",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 6,
+            "group_item_backup": false,
+            "pos": {
+              "x": 632.0,
+              "y": 763.0
+            },
+            "pos_rel": {
+              "x": -0.6074073910713196,
+              "y": 0.4129629135131836
+            },
+            "scale": {
+              "x": 0.2212962955236435,
+              "y": 0.3444444537162781
+            },
+            "scale_rel": {
+              "x": 0.2212962955236435,
+              "y": 0.3444444537162781
+            },
+            "bounds": {
+              "x": 284.0,
+              "y": 284.0
+            },
+            "bounds_rel": {
+              "x": 0.5259259343147278,
+              "y": 0.5259259343147278
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "2P R2 Timer",
+            "source_uuid": "209d7fd8-0372-4396-b54a-6181aea5d4e4",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 7,
+            "group_item_backup": false,
+            "pos": {
+              "x": 336.0,
+              "y": 876.0
+            },
+            "pos_rel": {
+              "x": -1.1555556058883667,
+              "y": 0.6222221851348877
+            },
+            "scale": {
+              "x": 0.2092592567205429,
+              "y": 0.09166666865348816
+            },
+            "scale_rel": {
+              "x": 0.2092592567205429,
+              "y": 0.09166666865348816
+            },
+            "bounds": {
+              "x": 268.0,
+              "y": 76.0
+            },
+            "bounds_rel": {
+              "x": 0.4962962865829468,
+              "y": 0.14074073731899261
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          }
+        ]
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.show_scene_item.5": [],
+        "libobs.hide_scene_item.5": [],
+        "libobs.show_scene_item.6": [],
+        "libobs.hide_scene_item.6": [],
+        "libobs.show_scene_item.7": [],
+        "libobs.hide_scene_item.7": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P R1",
+      "uuid": "97e399cb-aedd-4d06-8d94-4807b6972b5a",
+      "id": "group",
+      "versioned_id": "group",
+      "settings": {
+        "id_counter": 0,
+        "custom_size": true,
+        "cx": 924,
+        "cy": 500,
+        "items": [
+          {
+            "name": "4P R1 Stream",
+            "source_uuid": "65f2fae3-23d8-4e9c-ad7b-9ad473914c4d",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 1,
+            "group_item_backup": false,
+            "pos": {
+              "x": 309.99993896484375,
+              "y": 0.0
+            },
+            "pos_rel": {
+              "x": -1.203703761100769,
+              "y": -1.0
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 614.0,
+              "y": 500.0
+            },
+            "bounds_rel": {
+              "x": 1.1370370388031006,
+              "y": 0.9259259104728699
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R1 Tracker",
+            "source_uuid": "b6228865-cacd-4470-9b83-e60f88e70e91",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 3,
+            "group_item_backup": false,
+            "pos": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "pos_rel": {
+              "x": -1.7777777910232544,
+              "y": -1.0
+            },
+            "scale": {
+              "x": 0.2231481522321701,
+              "y": 0.3611111044883728
+            },
+            "scale_rel": {
+              "x": 0.2231481522321701,
+              "y": 0.3611111044883728
+            },
+            "bounds": {
+              "x": 286.0,
+              "y": 286.0
+            },
+            "bounds_rel": {
+              "x": 0.529629647731781,
+              "y": 0.529629647731781
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R1 Timer",
+            "source_uuid": "d67e4f29-568d-46e2-8a46-e58edd3c358e",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 4,
+            "group_item_backup": false,
+            "pos": {
+              "x": 0.0,
+              "y": 422.0
+            },
+            "pos_rel": {
+              "x": -1.7777777910232544,
+              "y": -0.21851849555969238
+            },
+            "scale": {
+              "x": 0.2231481522321701,
+              "y": 0.09814814478158951
+            },
+            "scale_rel": {
+              "x": 0.2231481522321701,
+              "y": 0.09814814478158951
+            },
+            "bounds": {
+              "x": 286.0,
+              "y": 78.0
+            },
+            "bounds_rel": {
+              "x": 0.529629647731781,
+              "y": 0.14444445073604584
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          }
+        ]
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.show_scene_item.1": [],
+        "libobs.hide_scene_item.1": [],
+        "libobs.show_scene_item.3": [],
+        "libobs.hide_scene_item.3": [],
+        "libobs.show_scene_item.4": [],
+        "libobs.hide_scene_item.4": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P R2",
+      "uuid": "ba230d52-1375-4f27-a2f3-b3d1b98d6dc2",
+      "id": "group",
+      "versioned_id": "group",
+      "settings": {
+        "id_counter": 0,
+        "custom_size": true,
+        "cx": 924,
+        "cy": 503,
+        "items": [
+          {
+            "name": "4P R2 Stream",
+            "source_uuid": "497e53ed-d129-43c6-b258-694de40038f0",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 5,
+            "group_item_backup": false,
+            "pos": {
+              "x": 309.99993896484375,
+              "y": 0.0
+            },
+            "pos_rel": {
+              "x": -1.203703761100769,
+              "y": -1.0
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 614.0,
+              "y": 500.0
+            },
+            "bounds_rel": {
+              "x": 1.1370370388031006,
+              "y": 0.9259259104728699
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R2 Tracker",
+            "source_uuid": "7392123d-dd24-4704-94ff-f9ce9c98bb70",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 6,
+            "group_item_backup": false,
+            "pos": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "pos_rel": {
+              "x": -1.7777777910232544,
+              "y": -1.0
+            },
+            "scale": {
+              "x": 0.2231481522321701,
+              "y": 0.3611111044883728
+            },
+            "scale_rel": {
+              "x": 0.2231481522321701,
+              "y": 0.3611111044883728
+            },
+            "bounds": {
+              "x": 286.0,
+              "y": 286.0
+            },
+            "bounds_rel": {
+              "x": 0.529629647731781,
+              "y": 0.529629647731781
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R2 Timer",
+            "source_uuid": "10c78f31-ab8e-4cd3-9a18-5bffd3b7551b",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 7,
+            "group_item_backup": false,
+            "pos": {
+              "x": 0.0,
+              "y": 425.0
+            },
+            "pos_rel": {
+              "x": -1.7777777910232544,
+              "y": -0.21296298503875732
+            },
+            "scale": {
+              "x": 0.2231481522321701,
+              "y": 0.09814814478158951
+            },
+            "scale_rel": {
+              "x": 0.2231481522321701,
+              "y": 0.09814814478158951
+            },
+            "bounds": {
+              "x": 286.0,
+              "y": 78.0
+            },
+            "bounds_rel": {
+              "x": 0.529629647731781,
+              "y": 0.14444445073604584
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          }
+        ]
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.show_scene_item.5": [],
+        "libobs.hide_scene_item.5": [],
+        "libobs.show_scene_item.6": [],
+        "libobs.hide_scene_item.6": [],
+        "libobs.show_scene_item.7": [],
+        "libobs.hide_scene_item.7": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P R3",
+      "uuid": "70f953dc-5a56-4896-88fb-d4425e0907fc",
+      "id": "group",
+      "versioned_id": "group",
+      "settings": {
+        "id_counter": 0,
+        "custom_size": true,
+        "cx": 927,
+        "cy": 500,
+        "items": [
+          {
+            "name": "4P R3 Stream",
+            "source_uuid": "e9d1f7f7-7171-4ff2-9b07-b432757098e3",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 8,
+            "group_item_backup": false,
+            "pos": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "pos_rel": {
+              "x": -1.7777777910232544,
+              "y": -1.0
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 614.0,
+              "y": 500.0
+            },
+            "bounds_rel": {
+              "x": 1.1370370388031006,
+              "y": 0.9259259104728699
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R3 Tracker",
+            "source_uuid": "cd3caa50-cf99-44aa-a693-e970af70ef25",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 9,
+            "group_item_backup": false,
+            "pos": {
+              "x": 640.0,
+              "y": 0.0
+            },
+            "pos_rel": {
+              "x": -0.5925925970077515,
+              "y": -1.0
+            },
+            "scale": {
+              "x": 0.2231481522321701,
+              "y": 0.3611111044883728
+            },
+            "scale_rel": {
+              "x": 0.2231481522321701,
+              "y": 0.3611111044883728
+            },
+            "bounds": {
+              "x": 286.0,
+              "y": 286.0
+            },
+            "bounds_rel": {
+              "x": 0.529629647731781,
+              "y": 0.529629647731781
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R3 Timer",
+            "source_uuid": "a25103ed-094c-474c-a10d-c4f9fa0c1cbb",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 10,
+            "group_item_backup": false,
+            "pos": {
+              "x": 641.0,
+              "y": 422.0
+            },
+            "pos_rel": {
+              "x": -0.5907407402992249,
+              "y": -0.21851849555969238
+            },
+            "scale": {
+              "x": 0.2231481522321701,
+              "y": 0.09814814478158951
+            },
+            "scale_rel": {
+              "x": 0.2231481522321701,
+              "y": 0.09814814478158951
+            },
+            "bounds": {
+              "x": 286.0,
+              "y": 78.0
+            },
+            "bounds_rel": {
+              "x": 0.529629647731781,
+              "y": 0.14444445073604584
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          }
+        ]
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.show_scene_item.8": [],
+        "libobs.hide_scene_item.8": [],
+        "libobs.show_scene_item.9": [],
+        "libobs.hide_scene_item.9": [],
+        "libobs.show_scene_item.10": [],
+        "libobs.hide_scene_item.10": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P R4",
+      "uuid": "9dbec794-7ffd-4c46-872a-9d380a13603e",
+      "id": "group",
+      "versioned_id": "group",
+      "settings": {
+        "id_counter": 0,
+        "custom_size": true,
+        "cx": 926,
+        "cy": 503,
+        "items": [
+          {
+            "name": "4P R4 Stream",
+            "source_uuid": "534b15e4-07d9-4f6d-8a6e-49ce06cc0090",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 11,
+            "group_item_backup": false,
+            "pos": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "pos_rel": {
+              "x": -1.7777777910232544,
+              "y": -1.0
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 614.0,
+              "y": 500.0
+            },
+            "bounds_rel": {
+              "x": 1.1370370388031006,
+              "y": 0.9259259104728699
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R4 Tracker",
+            "source_uuid": "5aed50f7-bc1f-4943-af94-633a8709a864",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 12,
+            "group_item_backup": false,
+            "pos": {
+              "x": 640.0,
+              "y": 0.0
+            },
+            "pos_rel": {
+              "x": -0.5925925970077515,
+              "y": -1.0
+            },
+            "scale": {
+              "x": 0.2231481522321701,
+              "y": 0.3611111044883728
+            },
+            "scale_rel": {
+              "x": 0.2231481522321701,
+              "y": 0.3611111044883728
+            },
+            "bounds": {
+              "x": 286.0,
+              "y": 286.0
+            },
+            "bounds_rel": {
+              "x": 0.529629647731781,
+              "y": 0.529629647731781
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R4 Timer",
+            "source_uuid": "05b61083-286d-421f-b189-ee304702a757",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 13,
+            "group_item_backup": false,
+            "pos": {
+              "x": 640.0,
+              "y": 425.0
+            },
+            "pos_rel": {
+              "x": -0.5925925970077515,
+              "y": -0.21296298503875732
+            },
+            "scale": {
+              "x": 0.2231481522321701,
+              "y": 0.09814814478158951
+            },
+            "scale_rel": {
+              "x": 0.2231481522321701,
+              "y": 0.09814814478158951
+            },
+            "bounds": {
+              "x": 286.0,
+              "y": 78.0
+            },
+            "bounds_rel": {
+              "x": 0.529629647731781,
+              "y": 0.14444445073604584
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          }
+        ]
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.show_scene_item.11": [],
+        "libobs.hide_scene_item.11": [],
+        "libobs.show_scene_item.12": [],
+        "libobs.hide_scene_item.12": [],
+        "libobs.show_scene_item.13": [],
+        "libobs.hide_scene_item.13": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+      "private_settings": {}
+    }
+  ],
+  "scene_order": [
+    {
+      "name": "Scene"
+    },
+    {
+      "name": "2P Restream"
+    },
+    {
+      "name": "4P Restream"
+    }
+  ],
+  "current_scene": "2P Restream",
+  "current_program_scene": "2P Restream",
+  "canvases": [],
+  "current_transition": "Fade",
+  "transition_duration": 300,
+  "transitions": [],
+  "quick_transitions": [
+    {
+      "name": "Cut",
+      "duration": 300,
+      "hotkeys": [],
+      "id": 4,
+      "fade_to_black": false
+    },
+    {
+      "name": "Fade",
+      "duration": 300,
+      "hotkeys": [],
+      "id": 5,
+      "fade_to_black": false
+    },
+    {
+      "name": "Fade",
+      "duration": 300,
+      "hotkeys": [],
+      "id": 6,
+      "fade_to_black": true
+    }
+  ],
+  "saved_projectors": [],
+  "preview_locked": false,
+  "scaling_enabled": false,
+  "scaling_level": -6,
+  "scaling_off_x": 0.0,
+  "scaling_off_y": 0.0,
+  "virtual-camera": {
+    "type2": 3
+  },
+  "modules": {
+    "scripts-tool": [],
+    "output-timer": {
+      "streamTimerHours": 0,
+      "streamTimerMinutes": 0,
+      "streamTimerSeconds": 30,
+      "recordTimerHours": 0,
+      "recordTimerMinutes": 0,
+      "recordTimerSeconds": 30,
+      "autoStartStreamTimer": false,
+      "autoStartRecordTimer": false,
+      "pauseRecordTimer": true
+    },
+    "auto-scene-switcher": {
+      "interval": 300,
+      "non_matching_scene": "",
+      "switch_if_not_matching": false,
+      "active": false,
+      "switches": []
+    },
+    "captions": {
+      "source": "",
+      "enabled": false,
+      "lang_id": 1033,
+      "provider": "mssapi"
+    }
+  },
+  "version": 2,
+  "sources": [
+    {
+      "prev_ver": 536936450,
+      "name": "2P R1 Stream",
+      "uuid": "a17ce012-ed7f-4eea-b212-0024a000b181",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "cursor": false,
+        "method": 2,
+        "client_area": false,
+        "window": "RUNNER 1 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "2P R1 Timer",
+      "uuid": "bc171fbf-1d76-42b5-ae13-6d34bc18ab4c",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 1 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1,
+        "method": 2,
+        "cursor": false,
+        "client_area": false
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "2P R1 Tracker",
+      "uuid": "b5f7c7f3-7a45-4248-a0ae-42e627a86c23",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 1 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1,
+        "method": 2,
+        "cursor": false,
+        "client_area": false
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "2P R2 Stream",
+      "uuid": "05a39f8f-2fb9-467c-b692-0e872d02f953",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 2 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1,
+        "method": 2,
+        "cursor": false,
+        "client_area": false
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "2P R2 Timer",
+      "uuid": "209d7fd8-0372-4396-b54a-6181aea5d4e4",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 2 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1,
+        "method": 2,
+        "cursor": false,
+        "client_area": false
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "2P R2 Tracker",
+      "uuid": "8557427b-434e-42ce-a6c9-eb5aafc09667",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 2 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1,
+        "method": 2,
+        "cursor": false,
+        "client_area": false
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "2P Restream",
+      "uuid": "ce89f585-5354-4b48-91c3-105ba5f5a485",
+      "id": "scene",
+      "versioned_id": "scene",
+      "settings": {
+        "id_counter": 14,
+        "custom_size": false,
+        "items": [
+          {
+            "name": "Background Image [placeholder]",
+            "source_uuid": "09c292b7-0c1a-4b83-8bbf-92d752e8898e",
+            "visible": true,
+            "locked": true,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 14,
+            "group_item_backup": false,
+            "pos": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "pos_rel": {
+              "x": -1.7777777910232544,
+              "y": -1.0
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "bounds_rel": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "2P R1 Stream",
+            "source_uuid": "a17ce012-ed7f-4eea-b212-0024a000b181",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 2,
+            "group_item_backup": true,
+            "pos": {
+              "x": 19.0,
+              "y": 19.0
+            },
+            "pos_rel": {
+              "x": -1.7425925731658936,
+              "y": -0.9648148417472839
+            },
+            "scale": {
+              "x": 0.7148148417472839,
+              "y": 0.9055555462837219
+            },
+            "scale_rel": {
+              "x": 0.7148148417472839,
+              "y": 0.9055555462837219
+            },
+            "bounds": {
+              "x": 916.0,
+              "y": 747.0
+            },
+            "bounds_rel": {
+              "x": 1.6962963342666626,
+              "y": 1.3833333253860474
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "2P R1 Tracker",
+            "source_uuid": "b5f7c7f3-7a45-4248-a0ae-42e627a86c23",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 3,
+            "group_item_backup": true,
+            "pos": {
+              "x": 19.0,
+              "y": 782.0
+            },
+            "pos_rel": {
+              "x": -1.7425925731658936,
+              "y": 0.44814813137054443
+            },
+            "scale": {
+              "x": 0.2212962955236435,
+              "y": 0.3444444537162781
+            },
+            "scale_rel": {
+              "x": 0.2212962955236435,
+              "y": 0.3444444537162781
+            },
+            "bounds": {
+              "x": 284.0,
+              "y": 284.0
+            },
+            "bounds_rel": {
+              "x": 0.5259259343147278,
+              "y": 0.5259259343147278
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "2P R1 Timer",
+            "source_uuid": "bc171fbf-1d76-42b5-ae13-6d34bc18ab4c",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 4,
+            "group_item_backup": true,
+            "pos": {
+              "x": 331.0,
+              "y": 895.0
+            },
+            "pos_rel": {
+              "x": -1.164814829826355,
+              "y": 0.6574074029922485
+            },
+            "scale": {
+              "x": 0.2092592567205429,
+              "y": 0.09166666865348816
+            },
+            "scale_rel": {
+              "x": 0.2092592567205429,
+              "y": 0.09166666865348816
+            },
+            "bounds": {
+              "x": 268.0,
+              "y": 76.0
+            },
+            "bounds_rel": {
+              "x": 0.4962962865829468,
+              "y": 0.14074073731899261
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "2P R1",
+            "source_uuid": "12382dc2-9a57-42b6-90f8-031b98a2af1c",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 8,
+            "group_item_backup": false,
+            "pos": {
+              "x": 19.0,
+              "y": 19.0
+            },
+            "pos_rel": {
+              "x": -1.7425925731658936,
+              "y": -0.9648148417472839
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "bounds_rel": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 0
+            },
+            "hide_transition": {
+              "duration": 0
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "2P R2 Stream",
+            "source_uuid": "05a39f8f-2fb9-467c-b692-0e872d02f953",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 5,
+            "group_item_backup": true,
+            "pos": {
+              "x": 985.0,
+              "y": 19.0
+            },
+            "pos_rel": {
+              "x": 0.046296294778585434,
+              "y": -0.9648148417472839
+            },
+            "scale": {
+              "x": 0.7148148417472839,
+              "y": 0.9055555462837219
+            },
+            "scale_rel": {
+              "x": 0.7148148417472839,
+              "y": 0.9055555462837219
+            },
+            "bounds": {
+              "x": 916.0,
+              "y": 747.0
+            },
+            "bounds_rel": {
+              "x": 1.6962963342666626,
+              "y": 1.3833333253860474
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "2P R2 Tracker",
+            "source_uuid": "8557427b-434e-42ce-a6c9-eb5aafc09667",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 6,
+            "group_item_backup": true,
+            "pos": {
+              "x": 1617.0,
+              "y": 782.0
+            },
+            "pos_rel": {
+              "x": 1.2166666984558105,
+              "y": 0.44814813137054443
+            },
+            "scale": {
+              "x": 0.2212962955236435,
+              "y": 0.3444444537162781
+            },
+            "scale_rel": {
+              "x": 0.2212962955236435,
+              "y": 0.3444444537162781
+            },
+            "bounds": {
+              "x": 284.0,
+              "y": 284.0
+            },
+            "bounds_rel": {
+              "x": 0.5259259343147278,
+              "y": 0.5259259343147278
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "2P R2 Timer",
+            "source_uuid": "209d7fd8-0372-4396-b54a-6181aea5d4e4",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 7,
+            "group_item_backup": true,
+            "pos": {
+              "x": 1321.0,
+              "y": 895.0
+            },
+            "pos_rel": {
+              "x": 0.6685185432434082,
+              "y": 0.6574074029922485
+            },
+            "scale": {
+              "x": 0.2092592567205429,
+              "y": 0.09166666865348816
+            },
+            "scale_rel": {
+              "x": 0.2092592567205429,
+              "y": 0.09166666865348816
+            },
+            "bounds": {
+              "x": 268.0,
+              "y": 76.0
+            },
+            "bounds_rel": {
+              "x": 0.4962962865829468,
+              "y": 0.14074073731899261
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "2P R2",
+            "source_uuid": "b4c5b93c-907a-4bb2-b7e3-a842a77f715c",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 9,
+            "group_item_backup": false,
+            "pos": {
+              "x": 985.0,
+              "y": 19.0
+            },
+            "pos_rel": {
+              "x": 0.046296294778585434,
+              "y": -0.9648148417472839
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "bounds_rel": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 0
+            },
+            "hide_transition": {
+              "duration": 0
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "Background 2P",
+            "source_uuid": "742095e2-4410-4d3e-aebf-61a9f8356b86",
+            "visible": false,
+            "locked": true,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 1,
+            "group_item_backup": false,
+            "pos": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "pos_rel": {
+              "x": -1.7777777910232544,
+              "y": -1.0
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "bounds_rel": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "Background 2P Outlines",
+            "source_uuid": "24b42fff-f4bf-4ca4-85a0-dd8e0eae372d",
+            "visible": true,
+            "locked": true,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 13,
+            "group_item_backup": false,
+            "pos": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "pos_rel": {
+              "x": -1.7777777910232544,
+              "y": -1.0
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "bounds_rel": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "Runner 1 Name",
+            "source_uuid": "f8058ee8-9686-406d-957a-0ba41ae4cfd5",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 2,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 10,
+            "group_item_backup": false,
+            "pos": {
+              "x": 345.0,
+              "y": 800.0
+            },
+            "pos_rel": {
+              "x": -1.1388888359069824,
+              "y": 0.4814814329147339
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 0.9722222089767456
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 0.9722222089767456
+            },
+            "bounds": {
+              "x": 500.0,
+              "y": 60.0
+            },
+            "bounds_rel": {
+              "x": 0.9259259104728699,
+              "y": 0.1111111119389534
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "Runner 2 Name",
+            "source_uuid": "86699677-94dc-4042-9947-16b96f7b407c",
+            "visible": true,
+            "locked": true,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 2,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 11,
+            "group_item_backup": false,
+            "pos": {
+              "x": 1075.0,
+              "y": 800.0
+            },
+            "pos_rel": {
+              "x": 0.21296297013759613,
+              "y": 0.4814814329147339
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 0.9722222089767456
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 0.9722222089767456
+            },
+            "bounds": {
+              "x": 500.0,
+              "y": 60.0
+            },
+            "bounds_rel": {
+              "x": 0.9259259104728699,
+              "y": 0.1111111119389534
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "Comms Name",
+            "source_uuid": "ab39dda6-f7d5-4d4a-a09b-d884de82925b",
+            "visible": true,
+            "locked": true,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 2,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 12,
+            "group_item_backup": false,
+            "pos": {
+              "x": 560.0,
+              "y": 1000.0
+            },
+            "pos_rel": {
+              "x": -0.7407407164573669,
+              "y": 0.8518518209457397
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 0.9722222089767456
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 0.9722222089767456
+            },
+            "bounds": {
+              "x": 800.0,
+              "y": 60.0
+            },
+            "bounds_rel": {
+              "x": 1.4814814329147339,
+              "y": 0.1111111119389534
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          }
+        ]
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "OBSBasic.SelectScene": [],
+        "libobs.show_scene_item.1": [],
+        "libobs.hide_scene_item.1": [],
+        "libobs.show_scene_item.8": [],
+        "libobs.hide_scene_item.8": [],
+        "libobs.show_scene_item.9": [],
+        "libobs.hide_scene_item.9": [],
+        "libobs.show_scene_item.10": [],
+        "libobs.hide_scene_item.10": [],
+        "libobs.show_scene_item.11": [],
+        "libobs.hide_scene_item.11": [],
+        "libobs.show_scene_item.12": [],
+        "libobs.hide_scene_item.12": [],
+        "libobs.show_scene_item.13": [],
+        "libobs.hide_scene_item.13": [],
+        "libobs.show_scene_item.14": [],
+        "libobs.hide_scene_item.14": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P R1 Stream",
+      "uuid": "65f2fae3-23d8-4e9c-ad7b-9ad473914c4d",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 1 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "method": 2,
+        "cursor": false,
+        "priority": 1
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P R1 Timer",
+      "uuid": "d67e4f29-568d-46e2-8a46-e58edd3c358e",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 1 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1,
+        "method": 2,
+        "cursor": false
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P R1 Tracker",
+      "uuid": "b6228865-cacd-4470-9b83-e60f88e70e91",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 1 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1,
+        "method": 2,
+        "cursor": false
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P R2 Stream",
+      "uuid": "497e53ed-d129-43c6-b258-694de40038f0",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 2 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1,
+        "method": 2,
+        "cursor": false
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P R2 Timer",
+      "uuid": "10c78f31-ab8e-4cd3-9a18-5bffd3b7551b",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 2 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1,
+        "method": 2,
+        "cursor": false
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P R2 Tracker",
+      "uuid": "7392123d-dd24-4704-94ff-f9ce9c98bb70",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 2 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1,
+        "method": 2,
+        "cursor": false
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P R3 Stream",
+      "uuid": "e9d1f7f7-7171-4ff2-9b07-b432757098e3",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 3 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1,
+        "method": 2,
+        "cursor": false
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P R3 Timer",
+      "uuid": "a25103ed-094c-474c-a10d-c4f9fa0c1cbb",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 3 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1,
+        "method": 2,
+        "cursor": false
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P R3 Tracker",
+      "uuid": "cd3caa50-cf99-44aa-a693-e970af70ef25",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 3 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1,
+        "method": 2,
+        "cursor": false
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P R4 Stream",
+      "uuid": "534b15e4-07d9-4f6d-8a6e-49ce06cc0090",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 4 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1,
+        "method": 2,
+        "cursor": false
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P R4 Timer",
+      "uuid": "05b61083-286d-421f-b189-ee304702a757",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 4 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1,
+        "method": 2,
+        "cursor": false
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P R4 Tracker",
+      "uuid": "5aed50f7-bc1f-4943-af94-633a8709a864",
+      "id": "window_capture",
+      "versioned_id": "window_capture",
+      "settings": {
+        "window": "RUNNER 4 - VLC media player:Qt5QWindowIcon:vlc.exe",
+        "priority": 1,
+        "method": 2,
+        "cursor": false
+      },
+      "mixers": 255,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "libobs.mute": [],
+        "libobs.unmute": [],
+        "libobs.push-to-mute": [],
+        "libobs.push-to-talk": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "4P Restream",
+      "uuid": "8f8ac9c7-2fe0-4c18-a7be-0a5c9fd97f48",
+      "id": "scene",
+      "versioned_id": "scene",
+      "settings": {
+        "id_counter": 24,
+        "custom_size": false,
+        "items": [
+          {
+            "name": "Background Image [placeholder]",
+            "source_uuid": "09c292b7-0c1a-4b83-8bbf-92d752e8898e",
+            "visible": true,
+            "locked": true,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 19,
+            "group_item_backup": false,
+            "pos": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "pos_rel": {
+              "x": -1.7777777910232544,
+              "y": -1.0
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "bounds_rel": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R1 Stream",
+            "source_uuid": "65f2fae3-23d8-4e9c-ad7b-9ad473914c4d",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 1,
+            "group_item_backup": true,
+            "pos": {
+              "x": 319.99993896484375,
+              "y": 10.0
+            },
+            "pos_rel": {
+              "x": -1.1851853132247925,
+              "y": -0.9814814925193787
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 614.0,
+              "y": 500.0
+            },
+            "bounds_rel": {
+              "x": 1.1370370388031006,
+              "y": 0.9259259104728699
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R1 Tracker",
+            "source_uuid": "b6228865-cacd-4470-9b83-e60f88e70e91",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 3,
+            "group_item_backup": true,
+            "pos": {
+              "x": 10.0,
+              "y": 10.0
+            },
+            "pos_rel": {
+              "x": -1.7592592239379883,
+              "y": -0.9814814925193787
+            },
+            "scale": {
+              "x": 0.2231481522321701,
+              "y": 0.3611111044883728
+            },
+            "scale_rel": {
+              "x": 0.2231481522321701,
+              "y": 0.3611111044883728
+            },
+            "bounds": {
+              "x": 286.0,
+              "y": 286.0
+            },
+            "bounds_rel": {
+              "x": 0.529629647731781,
+              "y": 0.529629647731781
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R1 Timer",
+            "source_uuid": "d67e4f29-568d-46e2-8a46-e58edd3c358e",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 4,
+            "group_item_backup": true,
+            "pos": {
+              "x": 10.0,
+              "y": 432.0
+            },
+            "pos_rel": {
+              "x": -1.7592592239379883,
+              "y": -0.19999998807907104
+            },
+            "scale": {
+              "x": 0.2231481522321701,
+              "y": 0.09814814478158951
+            },
+            "scale_rel": {
+              "x": 0.2231481522321701,
+              "y": 0.09814814478158951
+            },
+            "bounds": {
+              "x": 286.0,
+              "y": 78.0
+            },
+            "bounds_rel": {
+              "x": 0.529629647731781,
+              "y": 0.14444445073604584
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R1",
+            "source_uuid": "97e399cb-aedd-4d06-8d94-4807b6972b5a",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 14,
+            "group_item_backup": false,
+            "pos": {
+              "x": 10.0,
+              "y": 10.0
+            },
+            "pos_rel": {
+              "x": -1.7592592239379883,
+              "y": -0.9814814925193787
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "bounds_rel": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 0
+            },
+            "hide_transition": {
+              "duration": 0
+            },
+            "private_settings": {
+              "collapsed": false
+            }
+          },
+          {
+            "name": "4P R2 Stream",
+            "source_uuid": "497e53ed-d129-43c6-b258-694de40038f0",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 5,
+            "group_item_backup": true,
+            "pos": {
+              "x": 319.99993896484375,
+              "y": 524.0
+            },
+            "pos_rel": {
+              "x": -1.1851853132247925,
+              "y": -0.029629647731781006
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 614.0,
+              "y": 500.0
+            },
+            "bounds_rel": {
+              "x": 1.1370370388031006,
+              "y": 0.9259259104728699
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R2 Tracker",
+            "source_uuid": "7392123d-dd24-4704-94ff-f9ce9c98bb70",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 6,
+            "group_item_backup": true,
+            "pos": {
+              "x": 10.0,
+              "y": 524.0
+            },
+            "pos_rel": {
+              "x": -1.7592592239379883,
+              "y": -0.029629647731781006
+            },
+            "scale": {
+              "x": 0.2231481522321701,
+              "y": 0.3611111044883728
+            },
+            "scale_rel": {
+              "x": 0.2231481522321701,
+              "y": 0.3611111044883728
+            },
+            "bounds": {
+              "x": 286.0,
+              "y": 286.0
+            },
+            "bounds_rel": {
+              "x": 0.529629647731781,
+              "y": 0.529629647731781
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R2 Timer",
+            "source_uuid": "10c78f31-ab8e-4cd3-9a18-5bffd3b7551b",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 7,
+            "group_item_backup": true,
+            "pos": {
+              "x": 10.0,
+              "y": 949.0
+            },
+            "pos_rel": {
+              "x": -1.7592592239379883,
+              "y": 0.7574074268341064
+            },
+            "scale": {
+              "x": 0.2231481522321701,
+              "y": 0.09814814478158951
+            },
+            "scale_rel": {
+              "x": 0.2231481522321701,
+              "y": 0.09814814478158951
+            },
+            "bounds": {
+              "x": 286.0,
+              "y": 78.0
+            },
+            "bounds_rel": {
+              "x": 0.529629647731781,
+              "y": 0.14444445073604584
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R2",
+            "source_uuid": "ba230d52-1375-4f27-a2f3-b3d1b98d6dc2",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 15,
+            "group_item_backup": false,
+            "pos": {
+              "x": 10.0,
+              "y": 524.0
+            },
+            "pos_rel": {
+              "x": -1.7592592239379883,
+              "y": -0.029629647731781006
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "bounds_rel": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 0
+            },
+            "hide_transition": {
+              "duration": 0
+            },
+            "private_settings": {
+              "collapsed": false
+            }
+          },
+          {
+            "name": "4P R3 Stream",
+            "source_uuid": "e9d1f7f7-7171-4ff2-9b07-b432757098e3",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 8,
+            "group_item_backup": true,
+            "pos": {
+              "x": 986.0,
+              "y": 10.0
+            },
+            "pos_rel": {
+              "x": 0.04814814776182175,
+              "y": -0.9814814925193787
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 614.0,
+              "y": 500.0
+            },
+            "bounds_rel": {
+              "x": 1.1370370388031006,
+              "y": 0.9259259104728699
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R3 Tracker",
+            "source_uuid": "cd3caa50-cf99-44aa-a693-e970af70ef25",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 9,
+            "group_item_backup": true,
+            "pos": {
+              "x": 1626.0,
+              "y": 10.0
+            },
+            "pos_rel": {
+              "x": 1.2333333492279053,
+              "y": -0.9814814925193787
+            },
+            "scale": {
+              "x": 0.2231481522321701,
+              "y": 0.3611111044883728
+            },
+            "scale_rel": {
+              "x": 0.2231481522321701,
+              "y": 0.3611111044883728
+            },
+            "bounds": {
+              "x": 286.0,
+              "y": 286.0
+            },
+            "bounds_rel": {
+              "x": 0.529629647731781,
+              "y": 0.529629647731781
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R3 Timer",
+            "source_uuid": "a25103ed-094c-474c-a10d-c4f9fa0c1cbb",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 10,
+            "group_item_backup": true,
+            "pos": {
+              "x": 1627.0,
+              "y": 432.0
+            },
+            "pos_rel": {
+              "x": 1.235185146331787,
+              "y": -0.19999998807907104
+            },
+            "scale": {
+              "x": 0.2231481522321701,
+              "y": 0.09814814478158951
+            },
+            "scale_rel": {
+              "x": 0.2231481522321701,
+              "y": 0.09814814478158951
+            },
+            "bounds": {
+              "x": 286.0,
+              "y": 78.0
+            },
+            "bounds_rel": {
+              "x": 0.529629647731781,
+              "y": 0.14444445073604584
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R3",
+            "source_uuid": "70f953dc-5a56-4896-88fb-d4425e0907fc",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 16,
+            "group_item_backup": false,
+            "pos": {
+              "x": 986.0,
+              "y": 10.0
+            },
+            "pos_rel": {
+              "x": 0.04814814776182175,
+              "y": -0.9814814925193787
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "bounds_rel": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 0
+            },
+            "hide_transition": {
+              "duration": 0
+            },
+            "private_settings": {
+              "collapsed": false
+            }
+          },
+          {
+            "name": "4P R4 Stream",
+            "source_uuid": "534b15e4-07d9-4f6d-8a6e-49ce06cc0090",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 11,
+            "group_item_backup": true,
+            "pos": {
+              "x": 986.0,
+              "y": 524.0
+            },
+            "pos_rel": {
+              "x": 0.04814814776182175,
+              "y": -0.029629647731781006
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 614.0,
+              "y": 500.0
+            },
+            "bounds_rel": {
+              "x": 1.1370370388031006,
+              "y": 0.9259259104728699
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R4 Tracker",
+            "source_uuid": "5aed50f7-bc1f-4943-af94-633a8709a864",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 12,
+            "group_item_backup": true,
+            "pos": {
+              "x": 1626.0,
+              "y": 524.0
+            },
+            "pos_rel": {
+              "x": 1.2333333492279053,
+              "y": -0.029629647731781006
+            },
+            "scale": {
+              "x": 0.2231481522321701,
+              "y": 0.3611111044883728
+            },
+            "scale_rel": {
+              "x": 0.2231481522321701,
+              "y": 0.3611111044883728
+            },
+            "bounds": {
+              "x": 286.0,
+              "y": 286.0
+            },
+            "bounds_rel": {
+              "x": 0.529629647731781,
+              "y": 0.529629647731781
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R4 Timer",
+            "source_uuid": "05b61083-286d-421f-b189-ee304702a757",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 1,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 13,
+            "group_item_backup": true,
+            "pos": {
+              "x": 1626.0,
+              "y": 949.0
+            },
+            "pos_rel": {
+              "x": 1.2333333492279053,
+              "y": 0.7574074268341064
+            },
+            "scale": {
+              "x": 0.2231481522321701,
+              "y": 0.09814814478158951
+            },
+            "scale_rel": {
+              "x": 0.2231481522321701,
+              "y": 0.09814814478158951
+            },
+            "bounds": {
+              "x": 286.0,
+              "y": 78.0
+            },
+            "bounds_rel": {
+              "x": 0.529629647731781,
+              "y": 0.14444445073604584
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "4P R4",
+            "source_uuid": "9dbec794-7ffd-4c46-872a-9d380a13603e",
+            "visible": true,
+            "locked": false,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 17,
+            "group_item_backup": false,
+            "pos": {
+              "x": 986.0,
+              "y": 524.0
+            },
+            "pos_rel": {
+              "x": 0.04814814776182175,
+              "y": -0.029629647731781006
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "bounds_rel": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 0
+            },
+            "hide_transition": {
+              "duration": 0
+            },
+            "private_settings": {
+              "collapsed": false
+            }
+          },
+          {
+            "name": "Background 4P Outlines",
+            "source_uuid": "442918d1-581c-49fd-9b7d-945c2146057b",
+            "visible": true,
+            "locked": true,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 2,
+            "group_item_backup": false,
+            "pos": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "pos_rel": {
+              "x": -1.7777777910232544,
+              "y": -1.0
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "bounds_rel": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "Background 4P",
+            "source_uuid": "dccd34f9-0894-4be9-96c3-40605c141786",
+            "visible": false,
+            "locked": true,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 0,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 18,
+            "group_item_backup": false,
+            "pos": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "pos_rel": {
+              "x": -1.7777777910232544,
+              "y": -1.0
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "bounds_rel": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "Runner 1 Name",
+            "source_uuid": "f8058ee8-9686-406d-957a-0ba41ae4cfd5",
+            "visible": true,
+            "locked": true,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 2,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 20,
+            "group_item_backup": false,
+            "pos": {
+              "x": 18.0,
+              "y": 339.0
+            },
+            "pos_rel": {
+              "x": -1.744444489479065,
+              "y": -0.37222224473953247
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 264.0,
+              "y": 50.0
+            },
+            "bounds_rel": {
+              "x": 0.4888888895511627,
+              "y": 0.09259258955717087
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "Runner 2 Name",
+            "source_uuid": "86699677-94dc-4042-9947-16b96f7b407c",
+            "visible": true,
+            "locked": true,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 2,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 21,
+            "group_item_backup": false,
+            "pos": {
+              "x": 18.0,
+              "y": 852.0
+            },
+            "pos_rel": {
+              "x": -1.744444489479065,
+              "y": 0.5777777433395386
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 264.0,
+              "y": 50.0
+            },
+            "bounds_rel": {
+              "x": 0.4888888895511627,
+              "y": 0.09259258955717087
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "Runner 3 Name",
+            "source_uuid": "7ab6b5ea-bc62-474d-868e-420b25bee3d0",
+            "visible": true,
+            "locked": true,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 2,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 22,
+            "group_item_backup": false,
+            "pos": {
+              "x": 1637.0,
+              "y": 339.0
+            },
+            "pos_rel": {
+              "x": 1.2537037134170532,
+              "y": -0.37222224473953247
+            },
+            "scale": {
+              "x": 1.465116262435913,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.465116262435913,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 264.0,
+              "y": 50.0
+            },
+            "bounds_rel": {
+              "x": 0.4888888895511627,
+              "y": 0.09259258955717087
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "Runner 4 Name",
+            "source_uuid": "6b31bc96-c1a4-4675-9ddd-bc897a602f56",
+            "visible": true,
+            "locked": true,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 2,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 23,
+            "group_item_backup": false,
+            "pos": {
+              "x": 1637.0,
+              "y": 852.0
+            },
+            "pos_rel": {
+              "x": 1.2537037134170532,
+              "y": 0.5777777433395386
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 264.0,
+              "y": 50.0
+            },
+            "bounds_rel": {
+              "x": 0.4888888895511627,
+              "y": 0.09259258955717087
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          },
+          {
+            "name": "Comms Name",
+            "source_uuid": "ab39dda6-f7d5-4d4a-a09b-d884de82925b",
+            "visible": true,
+            "locked": true,
+            "rot": 0.0,
+            "scale_ref": {
+              "x": 1920.0,
+              "y": 1080.0
+            },
+            "align": 5,
+            "bounds_type": 2,
+            "bounds_align": 0,
+            "bounds_crop": false,
+            "crop_left": 0,
+            "crop_top": 0,
+            "crop_right": 0,
+            "crop_bottom": 0,
+            "id": 24,
+            "group_item_backup": false,
+            "pos": {
+              "x": 620.0,
+              "y": 1031.0
+            },
+            "pos_rel": {
+              "x": -0.6296296119689941,
+              "y": 0.9092592000961304
+            },
+            "scale": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "scale_rel": {
+              "x": 1.0,
+              "y": 1.0
+            },
+            "bounds": {
+              "x": 680.0,
+              "y": 45.0
+            },
+            "bounds_rel": {
+              "x": 1.2592592239379883,
+              "y": 0.0833333358168602
+            },
+            "scale_filter": "disable",
+            "blend_method": "default",
+            "blend_type": "normal",
+            "show_transition": {
+              "duration": 300
+            },
+            "hide_transition": {
+              "duration": 300
+            },
+            "private_settings": {}
+          }
+        ]
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "OBSBasic.SelectScene": [],
+        "libobs.show_scene_item.2": [],
+        "libobs.hide_scene_item.2": [],
+        "libobs.show_scene_item.14": [],
+        "libobs.hide_scene_item.14": [],
+        "libobs.show_scene_item.15": [],
+        "libobs.hide_scene_item.15": [],
+        "libobs.show_scene_item.16": [],
+        "libobs.hide_scene_item.16": [],
+        "libobs.show_scene_item.17": [],
+        "libobs.hide_scene_item.17": [],
+        "libobs.show_scene_item.18": [],
+        "libobs.hide_scene_item.18": [],
+        "libobs.show_scene_item.19": [],
+        "libobs.hide_scene_item.19": [],
+        "libobs.show_scene_item.20": [],
+        "libobs.hide_scene_item.20": [],
+        "libobs.show_scene_item.21": [],
+        "libobs.hide_scene_item.21": [],
+        "libobs.show_scene_item.22": [],
+        "libobs.hide_scene_item.22": [],
+        "libobs.show_scene_item.23": [],
+        "libobs.hide_scene_item.23": [],
+        "libobs.show_scene_item.24": [],
+        "libobs.hide_scene_item.24": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Background 2P",
+      "uuid": "742095e2-4410-4d3e-aebf-61a9f8356b86",
+      "id": "image_source",
+      "versioned_id": "image_source",
+      "settings": {
+        "file": "obs-template/assets/bg-main-2p.png"
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {},
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Background 2P Outlines",
+      "uuid": "24b42fff-f4bf-4ca4-85a0-dd8e0eae372d",
+      "id": "image_source",
+      "versioned_id": "image_source",
+      "settings": {
+        "file": "obs-template/assets/bg-outlines-2p.png"
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {},
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Background 4P",
+      "uuid": "dccd34f9-0894-4be9-96c3-40605c141786",
+      "id": "image_source",
+      "versioned_id": "image_source",
+      "settings": {
+        "file": "obs-template/assets/bg-main-4p.png"
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {},
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Background 4P Outlines",
+      "uuid": "442918d1-581c-49fd-9b7d-945c2146057b",
+      "id": "image_source",
+      "versioned_id": "image_source",
+      "settings": {
+        "file": "obs-template/assets/bg-outlines-4p.png"
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {},
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Background Image [placeholder]",
+      "uuid": "09c292b7-0c1a-4b83-8bbf-92d752e8898e",
+      "id": "image_source",
+      "versioned_id": "image_source",
+      "settings": {
+        "file": "obs-template/assets/background-image.jpg"
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {},
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Comms Name",
+      "uuid": "ab39dda6-f7d5-4d4a-a09b-d884de82925b",
+      "id": "text_gdiplus",
+      "versioned_id": "text_gdiplus_v3",
+      "settings": {
+        "read_from_file": true,
+        "font": {
+          "face": "Impact",
+          "style": "Regular",
+          "size": 72,
+          "flags": 0
+        },
+        "file": "examples/obs_text/comm_names.txt",
+        "outline": true,
+        "outline_color": 4278190080,
+        "outline_size": 10
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {},
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Runner 1 Name",
+      "uuid": "f8058ee8-9686-406d-957a-0ba41ae4cfd5",
+      "id": "text_gdiplus",
+      "versioned_id": "text_gdiplus_v3",
+      "settings": {
+        "read_from_file": true,
+        "file": "examples/obs_text/runner1.txt",
+        "font": {
+          "face": "Impact",
+          "style": "Regular",
+          "size": 72,
+          "flags": 0
+        }
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {},
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Runner 2 Name",
+      "uuid": "86699677-94dc-4042-9947-16b96f7b407c",
+      "id": "text_gdiplus",
+      "versioned_id": "text_gdiplus_v3",
+      "settings": {
+        "read_from_file": true,
+        "file": "examples/obs_text/runner2.txt",
+        "font": {
+          "face": "Impact",
+          "style": "Regular",
+          "size": 72,
+          "flags": 0
+        }
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {},
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Runner 3 Name",
+      "uuid": "7ab6b5ea-bc62-474d-868e-420b25bee3d0",
+      "id": "text_gdiplus",
+      "versioned_id": "text_gdiplus_v3",
+      "settings": {
+        "read_from_file": true,
+        "file": "examples/obs_text/runner3.txt",
+        "font": {
+          "face": "Impact",
+          "style": "Regular",
+          "size": 72,
+          "flags": 0
+        }
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {},
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Runner 4 Name",
+      "uuid": "6b31bc96-c1a4-4675-9ddd-bc897a602f56",
+      "id": "text_gdiplus",
+      "versioned_id": "text_gdiplus_v3",
+      "settings": {
+        "read_from_file": true,
+        "file": "examples/obs_text/runner4.txt",
+        "font": {
+          "face": "Impact",
+          "style": "Regular",
+          "size": 72,
+          "flags": 0
+        }
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {},
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "private_settings": {}
+    },
+    {
+      "prev_ver": 536936450,
+      "name": "Scene",
+      "uuid": "785bff71-50d1-44ea-be39-a7bdb473d7dd",
+      "id": "scene",
+      "versioned_id": "scene",
+      "settings": {
+        "id_counter": 0,
+        "custom_size": false,
+        "items": []
+      },
+      "mixers": 0,
+      "sync": 0,
+      "flags": 0,
+      "volume": 1.0,
+      "balance": 0.5,
+      "enabled": true,
+      "muted": false,
+      "push-to-mute": false,
+      "push-to-mute-delay": 0,
+      "push-to-talk": false,
+      "push-to-talk-delay": 0,
+      "hotkeys": {
+        "OBSBasic.SelectScene": []
+      },
+      "deinterlace_mode": 0,
+      "deinterlace_field_order": 0,
+      "monitoring_type": 0,
+      "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+      "private_settings": {}
+    }
+  ]
+}

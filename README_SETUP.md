@@ -162,6 +162,22 @@ Password: your OBS websocket password
 
 ## 6. Set Up OBS Text Files
 
+If you want a starter OBS layout, import the included scene collection first:
+
+```text
+obs-template\Restream_Control_Template.json
+```
+
+In OBS:
+
+1. Open `Scene Collection`.
+2. Click `Import`.
+3. Select the template JSON file above.
+4. Switch to the imported `Restream Control Template` scene collection.
+5. If OBS reports missing image or text files, open that source's properties and browse to the matching file in this repo.
+
+The template already uses the default source names that Restream Control expects.
+
 Restream Control writes runner names and race mode to text files.
 
 Default folder:

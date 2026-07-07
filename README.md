@@ -24,6 +24,7 @@ New users should start with [README_SETUP.md](README_SETUP.md).
 - `app/sync_screenshots/` is generated locally by the Sync Tool timer screenshot feature.
 - `app/state/` is generated locally and stores current race state, crop presets, and logs.
 - `examples/obs_text/` contains example OBS text files only.
+- `obs-template/` contains an importable OBS starter scene collection and artwork assets.
 - `examples/obs_source_names.txt` lists the default OBS source names for 2P and 4P layouts.
 
 The generated `app/obs_text/`, `app/crop_screenshots/`, `app/sync_screenshots/`, `app/state/`, and local config files are ignored by Git.
