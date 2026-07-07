@@ -377,6 +377,7 @@ def launch_stream(slot: int, runner: Runner) -> None:
     cmd = [
         "streamlink",
         "--twitch-low-latency",
+        "--player-no-close",
         "--player", player,
         "--player-args", VLC_PLAYER_ARGS,
         "--title", title,

@@ -77,7 +77,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\Path\To\restream-control\
 
 Before launching streams, the app checks Streamlink and VLC. It also asks Streamlink to verify each selected Twitch channel has playable streams. Offline or mistyped channels are reported and skipped, while the available runner streams still launch.
 
-VLC is launched with player arguments that disable the media title overlay and on-screen display, so startup text like `fd://` and pause/play icons should not appear over runner feeds.
+VLC is launched with player arguments that disable the media title overlay and on-screen display, so startup text like `fd://` and pause/play icons should not appear over runner feeds. Streamlink is also launched with `--player-no-close` so it does not intentionally close VLC when a stream ends.
 
 ## OBS Setup Notes
 
