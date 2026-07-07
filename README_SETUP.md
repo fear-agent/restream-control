@@ -2,6 +2,8 @@
 
 This guide is for setting up Restream Control on a new Windows machine.
 
+Restream Control is currently Windows-only and has only been tested on Windows 10/11.
+
 Restream Control launches Twitch runner feeds through Streamlink/VLC, writes OBS text files, saves OBS crop presets, and helps sync runner streams.
 
 ## 1. Get The App From GitHub

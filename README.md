@@ -2,6 +2,8 @@
 
 Windows helper app for launching and managing 2-player or 4-player restreams.
 
+**Platform support:** Restream Control is currently Windows-only and has only been tested on Windows 10/11.
+
 The app coordinates Streamlink/VLC runner feeds, OBS text files, OBS crop values, screenshots, and simple stream delay controls.
 
 New users should start with [README_SETUP.md](README_SETUP.md).
@@ -31,7 +33,7 @@ The generated `app/obs_text/`, `app/crop_screenshots/`, `app/sync_screenshots/`,
 
 ## Requirements
 
-- Windows
+- Windows 10/11
 - Python 3
 - VLC
 - Streamlink available as the `streamlink` command
