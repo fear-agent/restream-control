@@ -1,0 +1,3 @@
+Pillow
+obsws-python
+streamlink

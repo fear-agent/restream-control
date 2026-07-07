@@ -1,0 +1,29 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Python environments
+.venv/
+venv/
+env/
+
+# Build/package output
+build/
+dist/
+*.spec
+*.zip
+
+# Local runtime output
+app/crop_screenshots/
+app/sync_screenshots/
+app/obs_text/
+app/race_setup_last.txt
+app/cropping_tool_config.json
+app/app_config.json
+app/state/
+*.log
+*.lnk
+restream-control-settings*.json
+
+# Local duplicate of the canonical tracked runner list
+app/runners.csv

@@ -1,0 +1,44 @@
+# Restream Control OBS Source Names
+#
+# These are the default OBS source/group item names expected by the app.
+# If your OBS sources use different names, open Restream Control > Settings
+# and edit OBS Source Mapping.
+#
+# Mapping format:
+# App expected source name = Your actual OBS source name
+#
+# Example:
+# 4P R1 Stream = Player 1 Capture
+
+2P layout
+---------
+2P R1 Stream
+2P R1 Tracker
+2P R1 Timer
+2P R2 Stream
+2P R2 Tracker
+2P R2 Timer
+
+4P layout
+---------
+4P R1 Stream
+4P R1 Tracker
+4P R1 Timer
+4P R2 Stream
+4P R2 Tracker
+4P R2 Timer
+4P R3 Stream
+4P R3 Tracker
+4P R3 Timer
+4P R4 Stream
+4P R4 Tracker
+4P R4 Timer
+
+OBS text files
+--------------
+runner1.txt
+runner2.txt
+runner3.txt
+runner4.txt
+comm_names.txt
+race_mode.txt
