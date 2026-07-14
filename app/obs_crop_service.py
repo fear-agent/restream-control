@@ -33,9 +33,11 @@ TARGETS_2P = [
     ("2P R2 Timer", "2P", "R2", "Timer"),
 ]
 
-ALL_TARGETS = [t[0] for t in TARGETS_4P + TARGETS_2P]
+BASE_TARGETS = TARGETS_4P + TARGETS_2P
+ALL_TARGETS = [t[0] for t in BASE_TARGETS]
 KNOWN_GROUPS = ["4P R1", "4P R2", "4P R3", "4P R4", "2P R1", "2P R2"]
 KNOWN_SCENES = ["4P Restream", "2P Restream"]
+LAYOUT_DESIGN_FILE = app_state.STATE_DIR / "layout_designer.json"
 
 
 def connect():
@@ -50,8 +52,54 @@ def connect():
     )
 
 
+def designer_crop_targets() -> list[tuple[str, str, str, str]]:
+    data = app_state.load_json(LAYOUT_DESIGN_FILE, {})
+    if not isinstance(data, dict):
+        return []
+    default_layout = app_state.normalize_layout(data.get("layout"))
+    regions = data.get("regions", [])
+    if not isinstance(regions, list):
+        return []
+    targets: list[tuple[str, str, str, str]] = []
+    seen: set[str] = set()
+    for region in regions:
+        if not isinstance(region, dict):
+            continue
+        region_type = str(region.get("type", ""))
+        if region_type not in {"Facecam", "Camera"}:
+            continue
+        layout = app_state.normalize_layout(region.get("layout", default_layout))
+        slot = str(region.get("slot", "")).strip().upper()
+        if slot not in {"R1", "R2", "R3", "R4"}:
+            continue
+        if layout == "2P" and slot not in {"R1", "R2"}:
+            continue
+        source = str(region.get("source", "") or f"{layout} {slot} Facecam").strip()
+        source = source.replace(" Camera", " Facecam")
+        if not source or source in seen:
+            continue
+        seen.add(source)
+        targets.append((source, layout, slot, "Facecam"))
+    return targets
+
+
+def all_crop_targets() -> list[tuple[str, str, str, str]]:
+    targets = list(BASE_TARGETS)
+    existing = {target[0] for target in targets}
+    for target in designer_crop_targets():
+        if target[0] not in existing:
+            targets.append(target)
+            existing.add(target[0])
+    return targets
+
+
+def all_target_names() -> list[str]:
+    return [target[0] for target in all_crop_targets()]
+
+
 def find_crop_targets(client: Any) -> dict[str, tuple[str, int]]:
     locations: dict[str, tuple[str, int]] = {}
+    target_names = set(all_target_names())
     source_map = app_state.load_config().get("obs_source_map", {})
     if not isinstance(source_map, dict):
         source_map = {}
@@ -62,7 +110,7 @@ def find_crop_targets(client: Any) -> dict[str, tuple[str, int]]:
         item_id = item.get("sceneItemId") if isinstance(item, dict) else getattr(item, "scene_item_id", None)
         if not name or item_id is None:
             return
-        if name in ALL_TARGETS:
+        if name in target_names:
             locations[name] = (container_name, item_id)
         logical_name = actual_to_logical.get(name)
         if logical_name:

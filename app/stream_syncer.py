@@ -6,7 +6,7 @@ Small Windows GUI for delaying VLC runner streams by slot.
 Designed for VLC windows titled RUNNER 1, RUNNER 2, RUNNER 3, RUNNER 4.
 
 The delay controls use the direct VLC window-message method that worked in testing.
-Reload Live closes/relaunches a runner from race_setup_last.txt so the stream returns to current live playback.
+Relaunch closes/reopens a runner from race_setup_last.txt so the stream returns to current live playback.
 """
 from __future__ import annotations
 
@@ -27,11 +27,12 @@ from tkinter import ttk, messagebox, simpledialog
 import app_state
 
 try:
-    from PIL import Image, ImageDraw, ImageGrab
+    from PIL import Image, ImageDraw, ImageGrab, ImageTk
 except Exception:
     Image = None
     ImageDraw = None
     ImageGrab = None
+    ImageTk = None
 
 ROOT = Path(__file__).resolve().parent
 LAST_SETUP = ROOT / "race_setup_last.txt"
@@ -246,13 +247,15 @@ def load_current_race_info() -> Dict[int, RunnerInfo]:
     return info
 
 
-class SyncerApp:
-    def __init__(self, root: tk.Tk) -> None:
-        self.root = root
-        self.root.title("Restream Sync Tool")
-        self.root.geometry("1120x590")
-        self.root.minsize(980, 500)
-        self.root.configure(bg=BG)
+class SyncPanel(tk.Frame):
+    def __init__(self, parent: tk.Widget, standalone: bool = False) -> None:
+        super().__init__(parent, bg=BG)
+        self.root = self.winfo_toplevel()
+        if standalone:
+            self.root.title("Restream Sync Tool")
+            self.root.geometry("1280x760")
+            self.root.minsize(1100, 680)
+            self.root.configure(bg=BG)
 
         self.windows: Dict[int, RunnerWindow] = {}
         self.runner_info: Dict[int, RunnerInfo] = {}
@@ -265,9 +268,16 @@ class SyncerApp:
         self.reload_buttons: Dict[int, ttk.Button] = {}
         self.calc_time_a_var = tk.StringVar()
         self.calc_time_b_var = tk.StringVar()
-        self.calc_result_var = tk.StringVar(value="Difference: -")
+        self.calc_result_var = tk.StringVar(value="Delay: -")
         self.calc_slot_var = tk.StringVar(value="1")
         self.last_calculated_seconds: Optional[float] = None
+        self.last_timer_image_path: Optional[Path] = None
+        self.timer_preview_image = None
+        self.timer_preview_source = None
+        self.timer_preview_resize_after = None
+        self.timer_preview_zoom = 1.0
+        self.timer_preview_offset = [0, 0]
+        self.timer_preview_drag_start = None
 
         self._setup_style()
         self._build_ui()
@@ -283,86 +293,121 @@ class SyncerApp:
         self.style.configure("TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 10))
         self.style.configure("TLabelframe", background=BG, foreground=TEXT, bordercolor=BORDER)
         self.style.configure("TLabelframe.Label", background=BG, foreground=TEXT, font=("Segoe UI", 10, "bold"))
-        self.style.configure("TButton", background=PANEL_2, foreground=TEXT, padding=(12, 8), bordercolor=BORDER)
+        self.style.configure("TButton", background=PANEL_2, foreground=TEXT, padding=(12, 8), borderwidth=0, relief="flat")
         self.style.map("TButton", background=[("active", ACCENT)])
         self.style.configure("TEntry", fieldbackground=INPUT_BG, foreground=TEXT, bordercolor=BORDER, padding=(6, 5))
 
     def _build_ui(self) -> None:
-        outer = ttk.Frame(self.root, padding=14)
+        outer = ttk.Frame(self, padding=14)
         outer.pack(fill="both", expand=True)
 
         top = ttk.Frame(outer)
         top.pack(fill="x", pady=(0, 12))
-        ttk.Label(top, text="Stream Sync", font=("Segoe UI", 16, "bold")).pack(side="left")
-        ttk.Button(top, text="Refresh", command=self.refresh_all).pack(side="right", padx=(8, 0))
+        ttk.Button(top, text="Refresh Status", command=self.refresh_all).pack(side="right", padx=(8, 0))
         ttk.Button(top, text="Clear Seconds", command=self.clear_seconds).pack(side="right", padx=(8, 0))
         ttk.Button(top, text="Apply All Delays", command=self.delay_all_entered).pack(side="right", padx=(8, 0))
         ttk.Button(top, text="Clear Timer Images", command=self.clear_timer_screenshots).pack(side="right", padx=(8, 0))
-        ttk.Button(top, text="Timer Screenshot", command=self.create_timer_sync_screenshot).pack(side="right", padx=(8, 0))
 
-        table = ttk.Frame(outer)
-        table.pack(fill="x")
-        headers = ["Slot", "Runner", "VLC Window", "Delay Seconds", "Controls"]
-        widths = [8, 24, 42, 13, 38]
-        for col, (header, width) in enumerate(zip(headers, widths)):
-            ttk.Label(table, text=header, font=("Segoe UI", 9, "bold"), width=width).grid(
-                row=0, column=col, sticky="w", padx=(0, 8), pady=(0, 8)
-            )
+        content = ttk.Frame(outer)
+        content.pack(fill="both", expand=True)
 
+        left = ttk.Frame(content)
+        left.pack(side="left", fill="both", expand=True, padx=(0, 12))
+
+        right = ttk.Frame(content)
+        right.pack(side="left", fill="both")
+        right.configure(width=340)
+        right.pack_propagate(False)
+
+        preview_frame = ttk.Frame(left)
+        preview_frame.pack(fill="both", expand=True, pady=(0, 10))
+        preview_actions = ttk.Frame(preview_frame)
+        preview_actions.pack(fill="x", pady=(0, 4))
+        ttk.Label(preview_actions, text="Timer Screenshot", font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 12))
+        ttk.Button(preview_actions, text="Screenshot", command=self.create_timer_sync_screenshot).pack(side="left", padx=(0, 8))
+        ttk.Button(preview_actions, text="Open Image", command=self.open_last_timer_screenshot).pack(side="left", padx=(0, 8))
+        ttk.Button(preview_actions, text="Reset View", command=self.reset_timer_preview_view).pack(side="left", padx=(0, 8))
+        self.timer_preview_status_var = tk.StringVar(value="No timer screenshot loaded.")
+        ttk.Label(preview_actions, textvariable=self.timer_preview_status_var).pack(side="left", padx=(8, 0))
+        ttk.Label(
+            preview_frame,
+            text="Take a screenshot, compare the timer values, then use the calculator below. Mouse wheel zooms; drag to pan.",
+            foreground=MUTED,
+        ).pack(fill="x", pady=(0, 6))
+        self.timer_preview_canvas = tk.Canvas(
+            preview_frame,
+            bg=INPUT_BG,
+            highlightthickness=0,
+        )
+        self.timer_preview_canvas.pack(fill="both", expand=True, pady=(0, 6))
+        self.timer_preview_canvas.bind("<Configure>", self.on_timer_preview_resize)
+        self.timer_preview_canvas.bind("<MouseWheel>", self.on_timer_preview_wheel)
+        self.timer_preview_canvas.bind("<ButtonPress-1>", self.on_timer_preview_press)
+        self.timer_preview_canvas.bind("<B1-Motion>", self.on_timer_preview_drag)
+
+        calc = ttk.LabelFrame(left, text="Delay Calculator")
+        calc.pack(fill="x", pady=(0, 10))
+        ttk.Label(calc, text="Base timer").grid(row=0, column=0, sticky="w", padx=(8, 6), pady=(8, 4))
+        ttk.Entry(calc, textvariable=self.calc_time_a_var, width=12).grid(row=0, column=1, sticky="w", padx=(0, 10), pady=(8, 4))
+        ttk.Label(calc, text="Runner timer").grid(row=0, column=2, sticky="w", padx=(0, 6), pady=(8, 4))
+        ttk.Entry(calc, textvariable=self.calc_time_b_var, width=12).grid(row=0, column=3, sticky="w", padx=(0, 10), pady=(8, 4))
+        ttk.Button(calc, text="Calculate", command=self.calculate_time_difference).grid(row=0, column=4, sticky="w", padx=(0, 10), pady=(8, 4))
+        ttk.Label(calc, textvariable=self.calc_result_var).grid(row=0, column=5, sticky="w", padx=(0, 8), pady=(8, 4))
+
+        ttk.Label(calc, text="Base is the timer everyone should match. Runner is the stream you are delaying.", foreground=MUTED).grid(
+            row=1, column=0, columnspan=6, sticky="w", padx=(8, 8), pady=(2, 4)
+        )
+        ttk.Label(calc, text="Send result to runner").grid(row=2, column=0, columnspan=2, sticky="w", padx=(8, 6), pady=(4, 8))
+        ttk.Combobox(calc, textvariable=self.calc_slot_var, values=["1", "2", "3", "4"], width=8, state="readonly").grid(row=2, column=2, sticky="w", padx=(0, 10), pady=(4, 8))
+        ttk.Button(calc, text="Use as Delay", command=self.use_calculated_delay).grid(row=2, column=3, columnspan=2, sticky="w", padx=(0, 8), pady=(4, 8))
+        calc.columnconfigure(5, weight=1)
+
+        runner_frame = ttk.Frame(right)
+        runner_frame.pack(fill="x")
         for slot in range(1, 5):
-            ttk.Label(table, text=f"R{slot}", width=8, font=("Segoe UI", 10, "bold")).grid(row=slot, column=0, sticky="w", padx=(0, 8), pady=5)
+            card = tk.Frame(runner_frame, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
+            card.pack(fill="x", pady=(0, 8))
+            top_row = tk.Frame(card, bg=PANEL)
+            top_row.pack(fill="x", padx=8, pady=(7, 4))
+            ttk.Label(top_row, text=f"R{slot}", width=4, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 8))
 
             runner_var = tk.StringVar(value="")
             self.runner_vars[slot] = runner_var
-            ttk.Label(table, textvariable=runner_var, width=24).grid(row=slot, column=1, sticky="w", padx=(0, 8), pady=5)
+            ttk.Label(top_row, textvariable=runner_var).pack(side="left", fill="x", expand=True)
+            ttk.Label(top_row, text="Delay").pack(side="left", padx=(6, 4))
 
             status_var = tk.StringVar(value="Not found")
             self.status_vars[slot] = status_var
-            ttk.Label(table, textvariable=status_var, width=42).grid(row=slot, column=2, sticky="we", padx=(0, 8), pady=5)
 
             seconds_var = tk.StringVar(value="")
             self.seconds_vars[slot] = seconds_var
-            ttk.Entry(table, textvariable=seconds_var, width=12).grid(row=slot, column=3, sticky="w", padx=(0, 8), pady=5)
+            ttk.Entry(top_row, textvariable=seconds_var, width=9).pack(side="left")
 
-            actions = ttk.Frame(table)
-            actions.grid(row=slot, column=4, sticky="w", pady=5)
-            delay_button = ttk.Button(actions, text="Apply Delay", command=lambda s=slot: self.delay_one(s), width=12)
+            actions = ttk.Frame(card)
+            actions.pack(fill="x", padx=8, pady=(0, 7))
+            delay_button = ttk.Button(actions, text="Delay", command=lambda s=slot: self.delay_one(s), width=7)
             delay_button.pack(side="left", padx=(0, 5))
             self.delay_buttons[slot] = delay_button
 
-            toggle_button = ttk.Button(actions, text="Toggle Pause", command=lambda s=slot: self.toggle_one(s), width=13)
+            toggle_button = ttk.Button(actions, text="Pause", command=lambda s=slot: self.toggle_one(s), width=7)
             toggle_button.pack(side="left", padx=(0, 5))
             self.toggle_buttons[slot] = toggle_button
 
-            reload_button = ttk.Button(actions, text="Reset to Live", command=lambda s=slot: self.reload_live(s), width=13)
+            reload_button = ttk.Button(actions, text="Relaunch", command=lambda s=slot: self.reload_live(s), width=8)
             reload_button.pack(side="left")
             self.reload_buttons[slot] = reload_button
 
-        table.columnconfigure(2, weight=1)
-
-        controls = ttk.Frame(outer)
+        controls = ttk.Frame(right)
         controls.pack(fill="x", pady=(14, 8))
-        ttk.Button(controls, text="Refresh VLC Windows", command=self.refresh_windows).pack(side="left", padx=(0, 8))
+        ttk.Button(controls, text="Refresh", command=self.refresh_windows).pack(side="left", padx=(0, 8))
         ttk.Button(controls, text="Reload Race Info", command=self.refresh_race_info).pack(side="left", padx=(0, 8))
 
         self.summary_var = tk.StringVar(value="")
-        ttk.Label(outer, textvariable=self.summary_var).pack(anchor="w", pady=(2, 6))
+        ttk.Label(right, textvariable=self.summary_var, wraplength=330).pack(anchor="w", pady=(2, 6))
 
-        calc = ttk.LabelFrame(outer, text="Time Difference")
-        calc.pack(fill="x", pady=(6, 10))
-        ttk.Label(calc, text="Time A").pack(side="left", padx=(8, 6), pady=8)
-        ttk.Entry(calc, textvariable=self.calc_time_a_var, width=12).pack(side="left", padx=(0, 10), pady=8)
-        ttk.Label(calc, text="Time B").pack(side="left", padx=(0, 6), pady=8)
-        ttk.Entry(calc, textvariable=self.calc_time_b_var, width=12).pack(side="left", padx=(0, 10), pady=8)
-        ttk.Button(calc, text="Calculate", command=self.calculate_time_difference).pack(side="left", padx=(0, 10), pady=8)
-        ttk.Label(calc, textvariable=self.calc_result_var, width=22).pack(side="left", padx=(0, 10), pady=8)
-        ttk.Label(calc, text="Send to").pack(side="left", padx=(0, 6), pady=8)
-        ttk.Combobox(calc, textvariable=self.calc_slot_var, values=["1", "2", "3", "4"], width=5, state="readonly").pack(side="left", padx=(0, 8), pady=8)
-        ttk.Button(calc, text="Use as Delay", command=self.use_calculated_delay).pack(side="left", padx=(0, 8), pady=8)
-
-        log_frame = ttk.LabelFrame(outer, text="Log")
+        log_frame = ttk.LabelFrame(right, text="Log")
         log_frame.pack(fill="both", expand=True)
-        self.log = tk.Text(log_frame, height=7, wrap="word", state="disabled")
+        self.log = tk.Text(log_frame, height=8, wrap="word", state="disabled")
         self.log.configure(bg=INPUT_BG, fg=TEXT, insertbackground=TEXT, relief="flat")
         self.log.pack(fill="both", expand=True, padx=6, pady=6)
 
@@ -406,9 +451,138 @@ class SyncerApp:
             self.root.after(0, self.log_message, f"ERROR creating timer screenshot: {exc}")
             self.root.after(0, messagebox.showerror, "Timer screenshot failed", str(exc))
             return
-        self.root.after(0, self.log_message, f"Timer screenshot saved: {path}")
+        self.root.after(0, self.display_timer_screenshot, path)
+
+    def display_timer_screenshot(self, path: Path) -> None:
+        self.last_timer_image_path = path
+        self.log_message(f"Timer screenshot saved: {path}")
+        self.timer_preview_status_var.set(path.name)
+        self.timer_preview_zoom = 1.0
+        self.timer_preview_offset = [0, 0]
+        self.render_timer_preview(path, self.last_timer_preview_slots())
+        self.refocus_tool()
+
+    def last_timer_preview_slots(self) -> list[int]:
+        return sorted(self.windows) or [1, 2, 3, 4]
+
+    def refocus_tool(self) -> None:
+        try:
+            self.root.lift()
+            self.root.focus_force()
+        except tk.TclError:
+            pass
+
+    def render_timer_preview(self, path: Path, slots: list[int] | None = None) -> None:
+        if Image is None or ImageTk is None:
+            self.timer_preview_canvas.delete("all")
+            self.timer_preview_canvas.create_text(12, 12, text=f"Saved: {path}", fill=MUTED, anchor="nw")
+            return
+        try:
+            self.root.update_idletasks()
+            image = Image.open(path).convert("RGB")
+            self.timer_preview_source = self.crop_timer_preview_image(image, slots or [1, 2, 3, 4])
+            self.draw_timer_preview()
+        except Exception as exc:
+            self.timer_preview_canvas.delete("all")
+            self.timer_preview_canvas.create_text(12, 12, text=f"Saved, but preview failed: {exc}", fill=MUTED, anchor="nw")
+
+    def draw_timer_preview(self) -> None:
+        if Image is None or ImageTk is None or self.timer_preview_source is None:
+            return
+        canvas_w = max(self.timer_preview_canvas.winfo_width(), 1)
+        canvas_h = max(self.timer_preview_canvas.winfo_height(), 1)
+        source_w, source_h = self.timer_preview_source.size
+        fit_scale = min(canvas_w / source_w, canvas_h / source_h)
+        scale = max(0.05, fit_scale * self.timer_preview_zoom)
+        draw_w = max(1, int(source_w * scale))
+        draw_h = max(1, int(source_h * scale))
+        image = self.timer_preview_source.resize((draw_w, draw_h), Image.LANCZOS)
+        self.timer_preview_image = ImageTk.PhotoImage(image)
+        x = (canvas_w - draw_w) // 2 + int(self.timer_preview_offset[0])
+        y = (canvas_h - draw_h) // 2 + int(self.timer_preview_offset[1])
+        self.timer_preview_canvas.delete("all")
+        self.timer_preview_canvas.create_image(x, y, image=self.timer_preview_image, anchor="nw")
+        self.timer_preview_canvas.config(scrollregion=(x, y, x + draw_w, y + draw_h))
+
+    def reset_timer_preview_view(self) -> None:
+        self.timer_preview_zoom = 1.0
+        self.timer_preview_offset = [0, 0]
+        self.draw_timer_preview()
+
+    def on_timer_preview_wheel(self, event) -> None:
+        if self.timer_preview_source is None:
+            return
+        factor = 1.12 if event.delta > 0 else 1 / 1.12
+        self.timer_preview_zoom = max(0.5, min(6.0, self.timer_preview_zoom * factor))
+        self.draw_timer_preview()
+
+    def on_timer_preview_press(self, event) -> None:
+        self.timer_preview_drag_start = (event.x, event.y, self.timer_preview_offset[0], self.timer_preview_offset[1])
+
+    def on_timer_preview_drag(self, event) -> None:
+        if not self.timer_preview_drag_start:
+            return
+        start_x, start_y, offset_x, offset_y = self.timer_preview_drag_start
+        self.timer_preview_offset = [offset_x + event.x - start_x, offset_y + event.y - start_y]
+        self.draw_timer_preview()
+
+    def crop_timer_preview_image(self, image, slots: list[int]):
+        slots = sorted(set(slots))
+        if not slots:
+            return image
+        gap = 8
+        label_height = 28
+        cell_width = (image.width - gap) // 2
+        cell_height = (image.height - gap) // 2 - label_height
+        positions = {
+            1: (0, 0),
+            2: (0, cell_height + label_height + gap),
+            3: (cell_width + gap, 0),
+            4: (cell_width + gap, cell_height + label_height + gap),
+        }
+        if len(slots) <= 2:
+            cells = []
+            for slot in slots:
+                x, y = positions.get(slot, (0, 0))
+                cells.append(image.crop((x, y, x + cell_width, y + label_height + cell_height)))
+            if len(cells) == 1:
+                return cells[0]
+            preview = Image.new("RGB", (cell_width * len(cells) + gap * (len(cells) - 1), label_height + cell_height), (12, 14, 16))
+            x = 0
+            for cell in cells:
+                preview.paste(cell, (x, 0))
+                x += cell_width + gap
+            return preview
+        boxes = []
+        for slot in slots:
+            x, y = positions.get(slot, (0, 0))
+            boxes.append((x, y, x + cell_width, y + label_height + cell_height))
+        left = min(box[0] for box in boxes)
+        top = min(box[1] for box in boxes)
+        right = max(box[2] for box in boxes)
+        bottom = max(box[3] for box in boxes)
+        return image.crop((left, top, right, bottom))
+
+    def on_timer_preview_resize(self, _event=None) -> None:
+        if not self.last_timer_image_path or not self.last_timer_image_path.exists():
+            return
+        if self.timer_preview_resize_after:
+            try:
+                self.root.after_cancel(self.timer_preview_resize_after)
+            except tk.TclError:
+                pass
+        self.timer_preview_resize_after = self.root.after(120, self.render_timer_preview_after_resize)
+
+    def render_timer_preview_after_resize(self) -> None:
+        self.timer_preview_resize_after = None
+        self.draw_timer_preview()
+
+    def open_last_timer_screenshot(self) -> None:
+        if not self.last_timer_image_path or not self.last_timer_image_path.exists():
+            messagebox.showinfo("Timer screenshot", "No timer screenshot has been created yet.")
+            return
         if os.name == "nt":
-            os.startfile(str(path))  # type: ignore[attr-defined]
+            os.startfile(str(self.last_timer_image_path))  # type: ignore[attr-defined]
 
     def build_timer_sync_screenshot(self) -> Path:
         if Image is None or ImageDraw is None:
@@ -481,7 +655,7 @@ class SyncerApp:
         for slot in range(1, 5):
             info = self.runner_info.get(slot)
             if info:
-                self.runner_vars[slot].set(f"{info.display_name} - {info.twitch_name}")
+                self.runner_vars[slot].set(info.display_name)
                 self.reload_buttons[slot].configure(state="normal")
             else:
                 self.runner_vars[slot].set("No last setup")
@@ -539,14 +713,14 @@ class SyncerApp:
             time_b = self.parse_timecode(self.calc_time_b_var.get())
         except ValueError as exc:
             self.last_calculated_seconds = None
-            self.calc_result_var.set("Difference: -")
+            self.calc_result_var.set("Delay: -")
             messagebox.showwarning("Time calculator", str(exc))
             return
         difference = abs(time_b - time_a)
         self.last_calculated_seconds = difference
         display = self.format_seconds(difference)
-        self.calc_result_var.set(f"Difference: {display}s")
-        self.log_message(f"Time difference calculated: {display}s")
+        self.calc_result_var.set(f"Delay: {display}s")
+        self.log_message(f"Delay calculated: {display}s")
 
     def use_calculated_delay(self) -> None:
         if self.last_calculated_seconds is None:
@@ -592,7 +766,7 @@ class SyncerApp:
     def toggle_one(self, slot: int) -> None:
         window = self.windows.get(slot)
         if not window:
-            messagebox.showwarning("Window not found", f"RUNNER {slot} VLC window was not found. Click Refresh VLC Windows.")
+            messagebox.showwarning("Window not found", f"RUNNER {slot} VLC window was not found. Click Refresh.")
             return
         try:
             toggle_runner(window)
@@ -607,7 +781,7 @@ class SyncerApp:
             return
         window = self.windows.get(slot)
         if not window:
-            messagebox.showwarning("Window not found", f"RUNNER {slot} VLC window was not found. Click Refresh VLC Windows.")
+            messagebox.showwarning("Window not found", f"RUNNER {slot} VLC window was not found. Click Refresh.")
             return
         self._start_delay_thread(slot, window, seconds)
 
@@ -627,7 +801,7 @@ class SyncerApp:
                 return
             window = self.windows.get(slot)
             if not window:
-                messagebox.showwarning("Window not found", f"RUNNER {slot} VLC window was not found. Click Refresh VLC Windows.")
+                messagebox.showwarning("Window not found", f"RUNNER {slot} VLC window was not found. Click Refresh.")
                 return
             jobs.append((slot, window, seconds))
 
@@ -692,20 +866,20 @@ class SyncerApp:
         info = self.runner_info.get(slot)
         twitch = info.twitch_name if info else ""
         if not twitch:
-            twitch = simpledialog.askstring("Reload Live", f"Twitch name for RUNNER {slot}:", parent=self.root) or ""
+            twitch = simpledialog.askstring("Relaunch Runner", f"Twitch name for RUNNER {slot}:", parent=self.root) or ""
             twitch = normalize_twitch(twitch)
             if not twitch:
                 return
 
         confirm = messagebox.askyesno(
-            "Reload Live",
+            "Relaunch Runner",
             f"Close/relaunch RUNNER {slot} from twitch.tv/{twitch}?\n\nThis is the way to return that slot to current live playback.",
         )
         if not confirm:
             return
 
         self._set_slot_busy(slot, True)
-        self.log_message(f"Reload Live RUNNER {slot}: twitch.tv/{twitch}")
+        self.log_message(f"Relaunch RUNNER {slot}: twitch.tv/{twitch}")
 
         def worker() -> None:
             try:
@@ -723,6 +897,12 @@ class SyncerApp:
                 self.root.after(0, self._set_slot_busy, slot, False)
 
         threading.Thread(target=worker, daemon=True).start()
+
+
+class SyncerApp(SyncPanel):
+    def __init__(self, root: tk.Tk) -> None:
+        super().__init__(root, standalone=True)
+        self.pack(fill="both", expand=True)
 
 
 def main() -> None:

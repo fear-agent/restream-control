@@ -4,7 +4,7 @@ This guide is for setting up Restream Control on a new Windows machine.
 
 Restream Control is currently Windows-only and has only been tested on Windows 10/11.
 
-Restream Control launches Twitch runner feeds through Streamlink/VLC, writes OBS text files, saves OBS crop presets, and helps sync runner streams.
+Restream Control launches Twitch runner feeds through Streamlink/VLC, writes OBS text files, saves OBS crop presets, helps sync runner streams, and can create or position OBS layout sources through websocket.
 
 ## 1. Get The App From GitHub
 
@@ -162,9 +162,15 @@ Port: 4455
 Password: your OBS websocket password
 ```
 
-## 6. Set Up OBS Text Files
+You can also open the `Wizard` tab in Restream Control and follow the guided setup steps. The wizard checks installed programs/packages, tests OBS websocket, links to the layout tools, helps start audio mapping, and can create a Start Menu shortcut.
 
-If you want a starter OBS layout, import the included scene collection first:
+## 6. Choose An OBS Layout Setup
+
+You have three practical OBS layout paths.
+
+### Option A: Import The Included OBS Template
+
+This is the easiest path if you want to start from the included Restream Control layout.
 
 ```text
 obs-template\Restream_Control_Template.json
@@ -179,6 +185,41 @@ In OBS:
 5. If OBS reports missing image or text files, open that source's properties and browse to the matching file in this repo.
 
 The template already uses the default source names that Restream Control expects.
+
+### Option B: Use OBS Builder
+
+This is the app-driven quick setup path. It creates the included Restream Control template scenes and source names through OBS websocket.
+
+In Restream Control:
+
+1. Open `OBS Builder`.
+2. Choose `2P`, `4P`, or `Both`.
+3. Click `Scan OBS`.
+4. Click `Create Missing Defaults`.
+
+`Create Missing Defaults` adds missing default scenes/sources without moving existing scene items. If you want to intentionally move the included template items back to the shipped default positions, use `Reset To Default Template`.
+
+### Option C: Use OBS Layout
+
+This is the custom layout path. Use it if you want to draw your own scene layout instead of using the included template positions.
+
+In Restream Control:
+
+1. Open `OBS Layout`.
+2. Choose `2P` or `4P`.
+3. Optionally click `Load Layout Image`.
+4. Choose whether the main layout image is `Overlay above feeds` or `Behind feeds`.
+5. Draw boxes for `Game`, `Tracker`, `Timer`, `Facecam`, `Runner Name`, `Comms`, `Text`, or `Image`.
+6. Click `Save Layout`.
+7. Click `Apply to OBS`.
+
+Use a transparent PNG/WebP/GIF if the layout image is an overlay above feeds. If the image is not transparent, choose `Behind feeds` so it does not cover the gameplay sources.
+
+For custom `Image` regions, use the Image Region `Layer` dropdown to place that image behind feeds, above feeds, or above the overlay. You can hold `Shift` and click multiple boxes, use arrow keys to nudge selected boxes by 1 pixel, and use `Shift` + arrow keys to nudge by 10 pixels. `Copy runner` can copy all runner boxes or one individual part to another slot.
+
+If you later remove boxes from the custom layout, click `Remove Unused Sources` to remove old Restream Control scene items from the current OBS scene. This does not globally delete OBS inputs or unrelated sources.
+
+## 7. Set Up OBS Text Files
 
 Restream Control writes runner names and race mode to text files.
 
@@ -201,9 +242,9 @@ race_mode.txt
 
 The app creates and updates those files automatically.
 
-## 7. Set Up OBS Source Names
+## 8. Set Up OBS Source Names
 
-The crop memory system needs OBS stream/tracker/timer sources. The default expected names are listed in:
+The crop memory system needs OBS game/tracker/timer/facecam sources. The default expected names are listed in:
 
 ```text
 examples\obs_source_names.txt
@@ -238,7 +279,39 @@ Example:
 
 The left side is what the app expects. The right side is your actual OBS source or group item name.
 
-## 8. First Preflight
+## 9. Audio Setup
+
+Open `Audio`.
+
+The top section reads OBS audio inputs and gives basic mute/volume controls.
+
+The `Audio Source Mapper` can create and map default runner audio sources:
+
+```text
+2P R1 Audio
+2P R2 Audio
+4P R1 Audio
+4P R2 Audio
+4P R3 Audio
+4P R4 Audio
+Discord Audio
+Mic Audio
+```
+
+Recommended flow:
+
+1. Launch runner VLC windows first.
+2. Open `Audio`.
+3. Choose `Current`, `2P`, `4P`, or `Both`.
+4. Click `Load Audio Windows`.
+5. For runner audio, use `Window title must match`.
+6. Click `Apply Audio Mapping`.
+
+Created audio sources stay muted until you unmute them.
+
+Discord and mic audio may need final adjustment in OBS depending on the machine and device names.
+
+## 10. First Preflight
 
 Open `Checklist` and click `Refresh Checklist`.
 
@@ -255,7 +328,7 @@ OBS text files updating
 
 If OBS crop targets are missing, either rename your OBS sources to the default names or update `OBS Source Mapping` in Settings.
 
-## 9. Basic Workflow
+## 11. Basic Workflow
 
 1. Open `Setup`.
 2. Choose `2P` or `4P`.
@@ -264,14 +337,16 @@ If OBS crop targets are missing, either rename your OBS sources to the default n
 5. Click `Launch Streams`.
 6. Open `Checklist`.
 7. Click `Take Screenshots`.
-8. Open `Cropping Tool`.
-9. Crop `Stream`, `Tracker`, and `Timer` for each runner.
-10. Use `Save/Apply`.
-11. Open `Sync Tool` if runner feeds need delay.
+8. Open `Cropping`.
+9. Crop `Game`, `Tracker`, `Timer`, and `Facecam` if your layout uses them.
+10. Click `Apply` for each part.
+11. Open `Sync` if runner feeds need delay.
 
 After crops are saved once, future races with the same runners can auto-apply their saved crops.
 
-## 10. Troubleshooting
+In `Cropping`, use `Reapply This Runner` when only the selected slot needs its saved crops restored. Use `Reapply All Runners` after layout changes if every current race slot needs saved crops applied again.
+
+## 12. Troubleshooting
 
 If streams do not launch:
 
@@ -289,7 +364,16 @@ If OBS crop apply fails:
 If text files do not update:
 
 1. Confirm OBS text sources point to `app\obs_text`.
-2. Click `Write Names Only` in Setup.
+2. Click `Update OBS Text` in Setup.
 3. Check the files in `app\obs_text`.
 
 If VLC shows a black screen after a runner ends stream, VLC behavior depends on how the stream disconnects. The app launches VLC with `--play-and-pause`, which can hold the last frame when VLC receives a clean end of input.
+
+If OBS Layout changes leave old sources visible:
+
+1. Open `OBS Layout`.
+2. Make sure the correct `2P` or `4P` layout is selected.
+3. Confirm the current boxes represent what you want.
+4. Click `Remove Unused Sources`.
+
+This removes unused Restream Control scene items from that OBS scene only.
