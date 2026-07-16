@@ -34,7 +34,7 @@ except Exception:
     ImageGrab = None
     ImageTk = None
 
-ROOT = Path(__file__).resolve().parent
+ROOT = app_state.APP_DIR
 LAST_SETUP = ROOT / "race_setup_last.txt"
 SYNC_SCREENSHOT_DIR = ROOT / "sync_screenshots"
 QUALITY = "720p60,720p,480p,360p,1080p60,1080p,best"
@@ -360,6 +360,7 @@ class SyncPanel(tk.Frame):
         ttk.Label(calc, text="Send result to runner").grid(row=2, column=0, columnspan=2, sticky="w", padx=(8, 6), pady=(4, 8))
         ttk.Combobox(calc, textvariable=self.calc_slot_var, values=["1", "2", "3", "4"], width=8, state="readonly").grid(row=2, column=2, sticky="w", padx=(0, 10), pady=(4, 8))
         ttk.Button(calc, text="Use as Delay", command=self.use_calculated_delay).grid(row=2, column=3, columnspan=2, sticky="w", padx=(0, 8), pady=(4, 8))
+        ttk.Button(calc, text="Delay Now", command=self.delay_calculated_now).grid(row=2, column=5, sticky="w", padx=(0, 8), pady=(4, 8))
         calc.columnconfigure(5, weight=1)
 
         runner_frame = ttk.Frame(right)
@@ -734,6 +735,17 @@ class SyncPanel(tk.Frame):
             return
         self.seconds_vars[slot].set(self.format_seconds(self.last_calculated_seconds))
         self.log_message(f"Set RUNNER {slot} delay to {self.format_seconds(self.last_calculated_seconds)}s.")
+
+    def delay_calculated_now(self) -> None:
+        self.use_calculated_delay()
+        if self.last_calculated_seconds is None:
+            return
+        try:
+            slot = int(self.calc_slot_var.get())
+        except ValueError:
+            messagebox.showwarning("Time calculator", "Choose a runner slot.")
+            return
+        self.delay_one(slot)
 
     def _get_seconds(self, slot: int) -> Optional[float]:
         raw = self.seconds_vars[slot].get().strip()

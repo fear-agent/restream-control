@@ -1,22 +1,27 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-APP_DIR = Path(__file__).resolve().parent
+IS_FROZEN = bool(getattr(sys, "frozen", False))
+APP_DIR = Path(sys.executable).resolve().parent if IS_FROZEN else Path(__file__).resolve().parent
+REPO_ROOT = APP_DIR if IS_FROZEN else APP_DIR.parent
 STATE_DIR = APP_DIR / "state"
 CONFIG_FILE = APP_DIR / "app_config.json"
 CURRENT_RACE_FILE = STATE_DIR / "current_race.json"
 CROP_PRESETS_FILE = STATE_DIR / "crop_presets.json"
 LOG_FILE = STATE_DIR / "restream_app.log"
+CRASH_LOG_FILE = STATE_DIR / "crash.log"
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "obs_text_dir": str(APP_DIR / "obs_text"),
     "screenshot_dir": str(APP_DIR / "crop_screenshots"),
-    "runner_csv": str(APP_DIR.parent / "data" / "runners.csv"),
+    "runner_csv": str(REPO_ROOT / "data" / "runners.csv"),
     "quality": "720p60,720p,480p,360p,1080p60,1080p,best",
+    "vlc_audio_device": "",
     "obs_websocket": {
         "host": "localhost",
         "port": 4455,
@@ -32,7 +37,7 @@ def ensure_state_dir() -> None:
 
 def load_json(path: Path, default: Any) -> Any:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except FileNotFoundError:
         return default
     except Exception:
@@ -48,6 +53,15 @@ def load_config() -> dict[str, Any]:
     data = load_json(CONFIG_FILE, {})
     config = DEFAULT_CONFIG.copy()
     config.update(data if isinstance(data, dict) else {})
+    local_runner_csv = APP_DIR / "runners.csv"
+    default_runner_csv = Path(DEFAULT_CONFIG["runner_csv"])
+    try:
+        configured_runner_csv = Path(str(config.get("runner_csv", ""))).expanduser()
+        if local_runner_csv.exists() and configured_runner_csv.resolve() == default_runner_csv.resolve():
+            config["runner_csv"] = str(local_runner_csv)
+    except Exception:
+        if local_runner_csv.exists():
+            config["runner_csv"] = str(local_runner_csv)
     obs_defaults = DEFAULT_CONFIG["obs_websocket"].copy()
     obs_defaults.update(config.get("obs_websocket", {}) if isinstance(config.get("obs_websocket"), dict) else {})
     config["obs_websocket"] = obs_defaults

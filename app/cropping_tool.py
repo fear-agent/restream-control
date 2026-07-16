@@ -34,7 +34,7 @@ except Exception:
 APP_TITLE = "Cropping Tool"
 DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 4455
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = str(app_state.APP_DIR)
 CONFIG_FILE = os.path.join(ROOT_DIR, "cropping_tool_config.json")
 SCREENSHOT_DIR = str(app_state.config_path("screenshot_dir"))
 
@@ -135,6 +135,7 @@ class CropPanel(tk.Frame):
         self.start_y = None
         self.crop = None
         self.runner_crop_slot_var = tk.StringVar()
+        self.active_runner_var = tk.StringVar(value="No runner selected")
         self.runner_crop_part_var = tk.StringVar(value="Stream")
         self.part_status_vars = {}
         self.show_obs_settings_var = tk.BooleanVar(value=False)
@@ -213,8 +214,15 @@ class CropPanel(tk.Frame):
 
         runner_memory = ttk.LabelFrame(right, text="Runner Crops")
         runner_memory.pack(fill=tk.X, padx=8, pady=4)
+        ttk.Label(
+            runner_memory,
+            textvariable=self.active_runner_var,
+            font=("Segoe UI", 14, "bold"),
+            foreground=TEXT,
+            wraplength=270,
+        ).pack(fill=tk.X, padx=6, pady=(6, 2))
         self.runner_combo = ttk.Combobox(runner_memory, textvariable=self.runner_crop_slot_var, state="readonly")
-        self.runner_combo.pack(fill=tk.X, padx=6, pady=(6, 4))
+        self.runner_combo.pack(fill=tk.X, padx=6, pady=(2, 4))
         self.runner_combo.bind("<<ComboboxSelected>>", lambda _event: self.select_runner_target())
 
         for label, part in [("Game", "Stream"), ("Tracker", "Tracker"), ("Timer", "Timer"), ("Facecam", "Facecam")]:
@@ -625,9 +633,19 @@ class CropPanel(tk.Frame):
         source = self.source_for_runner_part()
         if source and hasattr(self, "target_var"):
             self.target_var.set(source)
+        self.update_active_runner_label()
         if update_status:
             self.refresh_memory_status()
             self.update_part_statuses()
+
+    def update_active_runner_label(self):
+        runner = self.runner_for_selected_slot()
+        slot = self.selected_runner_slot()
+        if not runner or not slot:
+            self.active_runner_var.set("No runner selected")
+            return
+        display = runner.get("display_name") or runner.get("twitch_name") or f"Runner {slot}"
+        self.active_runner_var.set(f"R{slot}: {display}")
 
     def runner_for_selected_slot(self):
         slot = self.selected_runner_slot()

@@ -11,7 +11,9 @@ env/
 build/
 dist/
 *.spec
+!RestreamControl.spec
 *.zip
+release/
 
 # Local runtime output
 app/crop_screenshots/

@@ -35,14 +35,22 @@ from typing import Optional
 
 import app_state
 
-ROOT = Path(__file__).resolve().parent
-REPO_ROOT = ROOT.parent
+ROOT = app_state.APP_DIR
+REPO_ROOT = app_state.REPO_ROOT
 RUNNERS_CSV = app_state.config_path("runner_csv")
 OBS_TEXT_DIR = app_state.config_path("obs_text_dir")
 LAST_SETUP = ROOT / "race_setup_last.txt"
 # Prefer 720-class streams for consistent VLC window size, but allow 1080 if Twitch offers no lower transcodes.
 QUALITY = str(app_state.load_config().get("quality", app_state.DEFAULT_CONFIG["quality"]))
-VLC_PLAYER_ARGS = "--no-video-title-show --no-osd --no-qt-privacy-ask --play-and-pause {playerinput}"
+
+
+def vlc_player_args() -> str:
+    args = ["--no-video-title-show", "--no-osd", "--no-qt-privacy-ask", "--play-and-pause"]
+    vlc_audio_device = str(app_state.load_config().get("vlc_audio_device", "")).strip()
+    if vlc_audio_device:
+        args.extend(["--aout=mmdevice", f"--mmdevice-audio-device={vlc_audio_device}"])
+    args.append("{playerinput}")
+    return " ".join(args)
 
 SOURCE_TITLES = {
     1: "RUNNER 1",
@@ -379,7 +387,7 @@ def launch_stream(slot: int, runner: Runner) -> None:
         "--twitch-low-latency",
         "--player-no-close",
         "--player", player,
-        "--player-args", VLC_PLAYER_ARGS,
+        "--player-args", vlc_player_args(),
         "--title", title,
         url,
         QUALITY,
@@ -390,11 +398,19 @@ def launch_stream(slot: int, runner: Runner) -> None:
         # Detach Streamlink from this launcher console so closing/restarting the control panel
         # does not kill active VLC/Streamlink feeds.
         if os.name == "nt":
-            flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+            flags = (
+                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                | getattr(subprocess, "DETACHED_PROCESS", 0)
+                | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            )
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 0
             subprocess.Popen(
                 cmd,
                 cwd=str(ROOT),
                 creationflags=flags,
+                startupinfo=startupinfo,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,

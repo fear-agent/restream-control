@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ExeLauncher = Join-Path $AppDir "Restream Control.exe"
 $AppScript = Join-Path $AppDir "restream_app.py"
 $BatchLauncher = Join-Path $AppDir "start_restream_app.bat"
 if ($Location -eq "StartMenu") {
@@ -20,7 +21,10 @@ $Pythonw = (Get-Command pythonw.exe -ErrorAction SilentlyContinue).Source
 
 $Shell = New-Object -ComObject WScript.Shell
 $Shortcut = $Shell.CreateShortcut($ShortcutPath)
-if ($Pythonw) {
+if (Test-Path $ExeLauncher) {
+    $Shortcut.TargetPath = $ExeLauncher
+    $Shortcut.Arguments = ""
+} elseif ($Pythonw) {
     $Shortcut.TargetPath = $Pythonw
     $Shortcut.Arguments = '"' + $AppScript + '"'
 } else {

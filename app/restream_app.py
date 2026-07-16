@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -28,8 +29,8 @@ import obs_crop_service
 import stream_syncer
 
 APP_TITLE = "Restream Control"
-BASE_DIR = Path(__file__).resolve().parent
-REPO_ROOT = BASE_DIR.parent
+BASE_DIR = app_state.APP_DIR
+REPO_ROOT = app_state.REPO_ROOT
 PYTHON = sys.executable
 PYTHONW_PATH = Path(sys.executable).with_name("pythonw.exe")
 GUI_PYTHON = str(PYTHONW_PATH if os.name == "nt" and PYTHONW_PATH.exists() else sys.executable)
@@ -88,7 +89,17 @@ LAYOUT_REGION_TYPES = ["Game", "Tracker", "Timer", "Facecam", "Runner Name", "Co
 MAX_EXTRA_TEXT_REGIONS = 3
 
 
+def bundled_or_exists(path: Path) -> bool:
+    return app_state.IS_FROZEN or path.exists()
+
+
 def load_launch_module() -> Optional[Any]:
+    if app_state.IS_FROZEN:
+        try:
+            import launch_crosskeys
+            return launch_crosskeys
+        except Exception:
+            return None
     if not CONTROL_SCRIPT.exists():
         return None
     spec = importlib.util.spec_from_file_location("launch_crosskeys", CONTROL_SCRIPT)
@@ -135,6 +146,30 @@ def open_folder(path: Path) -> None:
         os.startfile(str(path))  # type: ignore[attr-defined]
     else:
         subprocess.Popen(["xdg-open", str(path)])
+
+
+def open_path(path: Path) -> None:
+    try:
+        if os.name == "nt":
+            os.startfile(str(path))  # type: ignore[attr-defined]
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+    except Exception:
+        if os.name == "nt" and path.suffix.lower() == ".md":
+            subprocess.Popen(["notepad.exe", str(path)])
+            return
+        raise
+
+
+def open_windows_volume_mixer() -> None:
+    if os.name == "nt":
+        try:
+            subprocess.Popen(["explorer.exe", "ms-settings:apps-volume"])
+            return
+        except Exception:
+            subprocess.Popen(["sndvol.exe"])
+            return
+    messagebox.showinfo("Volume mixer", "Windows Volume Mixer is only available on Windows.")
 
 
 class ScrollablePage(tk.Frame):
@@ -420,8 +455,6 @@ class RestreamApp(tk.Tk):
         self.dashboard_layout_var = tk.StringVar(value="Layout: -")
         self.dashboard_runners_var = tk.StringVar(value="Runners: -")
         self.dashboard_obs_var = tk.StringVar(value="OBS: not checked")
-        self.dashboard_crops_var = tk.StringVar(value="Crops: -")
-        self.dashboard_screenshots_var = tk.StringVar(value="Screenshots: -")
         self.mode_var = tk.StringVar(value="2")
         self.comms_var = tk.StringVar()
         self.replace_slot_var = tk.StringVar(value="1")
@@ -429,6 +462,10 @@ class RestreamApp(tk.Tk):
         self.obs_host_var = tk.StringVar(value=str(obs_config.get("host", "localhost")))
         self.obs_port_var = tk.StringVar(value=str(obs_config.get("port", 4455)))
         self.obs_password_var = tk.StringVar(value=str(obs_config.get("password", "")))
+        self.vlc_audio_var = tk.StringVar()
+        self.vlc_audio_status_var = tk.StringVar(value="Choose an optional VLC output device.")
+        self.vlc_audio_devices: dict[str, str] = {}
+        self.vlc_audio_combo: Optional[ttk.Combobox] = None
         self.edit_runner_var = tk.StringVar()
         self.edit_display_var = tk.StringVar()
         self.edit_twitch_var = tk.StringVar()
@@ -476,8 +513,8 @@ class RestreamApp(tk.Tk):
         self._setup_style()
         self._build()
         self.load_runners_into_setup()
-        self.show_page("Setup")
-        self.refresh_status()
+        self.show_page("Setup Wizard" if self.should_show_setup_wizard() else "Setup")
+        self.after(150, self.refresh_status)
 
     def log_status(self, message: str) -> None:
         self.status_var.set(message)
@@ -491,6 +528,11 @@ class RestreamApp(tk.Tk):
             self.focus_force()
         except tk.TclError:
             pass
+
+    def should_show_setup_wizard(self) -> bool:
+        if app_state.CONFIG_FILE.exists():
+            return False
+        return app_state.IS_FROZEN or not app_state.CURRENT_RACE_FILE.exists()
 
     def _setup_style(self) -> None:
         self.style = ttk.Style(self)
@@ -554,10 +596,13 @@ class RestreamApp(tk.Tk):
         title = tk.Label(sidebar, text="Restream Control", bg=SIDEBAR, fg=TEXT, font=("Segoe UI", 10, "bold"), justify="center", wraplength=120)
         title.pack(anchor="center", padx=12, pady=(0, 16))
 
-        for name in ["Setup", "Cropping", "Sync", "Audio", "OBS Layout", "OBS Builder", "Checklist", "Wizard", "Settings"]:
+        nav_labels = {
+            "Custom OBS Layout": "Custom Layout",
+        }
+        for name in ["Setup", "Cropping", "Sync", "Audio", "Custom OBS Layout", "Template Setup", "Checklist", "Setup Wizard", "Settings"]:
             btn = tk.Button(
                 sidebar,
-                text=name,
+                text=nav_labels.get(name, name),
                 anchor="w",
                 relief="flat",
                 bd=0,
@@ -592,8 +637,6 @@ class RestreamApp(tk.Tk):
             self.dashboard_layout_var,
             self.dashboard_runners_var,
             self.dashboard_obs_var,
-            self.dashboard_crops_var,
-            self.dashboard_screenshots_var,
         ]:
             tk.Label(
                 dashboard,
@@ -610,18 +653,16 @@ class RestreamApp(tk.Tk):
         self.page_container = tk.Frame(content, bg=BG)
         self.page_container.pack(fill="both", expand=True, padx=16, pady=(0, 14))
 
-        for name in ["Setup", "Cropping", "Sync", "Audio", "OBS Layout", "OBS Builder", "Checklist", "Wizard", "Settings"]:
-            page = tk.Frame(self.page_container, bg=BG) if name in {"Cropping", "Sync", "OBS Layout"} else ScrollablePage(self.page_container)
+        for name in ["Setup", "Cropping", "Sync", "Audio", "Custom OBS Layout", "Template Setup", "Checklist", "Setup Wizard", "Settings"]:
+            page = tk.Frame(self.page_container, bg=BG) if name in {"Cropping", "Sync", "Custom OBS Layout"} else ScrollablePage(self.page_container)
             self.pages[name] = page
-            self.page_bodies[name] = page if name in {"Cropping", "Sync", "OBS Layout"} else page.inner
+            self.page_bodies[name] = page if name in {"Cropping", "Sync", "Custom OBS Layout"} else page.inner
 
         self._build_setup(self.page_bodies["Setup"])
-        self._build_wizard(self.page_bodies["Wizard"])
-        self._build_cropping(self.page_bodies["Cropping"])
-        self._build_sync(self.page_bodies["Sync"])
+        self._build_wizard(self.page_bodies["Setup Wizard"])
         self._build_audio_panel(self.page_bodies["Audio"])
-        self._build_layout_designer(self.page_bodies["OBS Layout"])
-        self._build_obs_builder(self.page_bodies["OBS Builder"])
+        self._build_layout_designer(self.page_bodies["Custom OBS Layout"])
+        self._build_obs_builder(self.page_bodies["Template Setup"])
         self._build_checklist(self.page_bodies["Checklist"])
         self._build_settings(self.page_bodies["Settings"])
 
@@ -638,8 +679,12 @@ class RestreamApp(tk.Tk):
                 btn.config(bg=PANEL_2, fg=TEXT, font=("Segoe UI", 11), relief="flat")
         if name == "Sync" and self.sync_panel is not None:
             self.sync_panel.refresh_all()
+        elif name == "Sync" and self.sync_panel is None:
+            self._build_sync(self.page_bodies["Sync"])
         if name == "Cropping" and self.crop_panel is not None:
             self.crop_panel.refresh_current_race()
+        elif name == "Cropping" and self.crop_panel is None:
+            self._build_cropping(self.page_bodies["Cropping"])
 
     def panel(self, parent: tk.Frame, title: str) -> tk.Frame:
         frame = tk.Frame(parent, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
@@ -729,6 +774,7 @@ class RestreamApp(tk.Tk):
         tk.Label(replace, text="Slot", bg=PANEL, fg=TEXT, font=("Segoe UI", 10)).pack(side="left", padx=(0, 6))
         slot_combo = ttk.Combobox(replace, textvariable=self.replace_slot_var, values=["1", "2", "3", "4"], width=8, state="readonly")
         slot_combo.pack(side="left", padx=(0, 8), ipady=5)
+        self.button(replace, "Relaunch Slot", self.relaunch_slot_from_gui, compact=True).pack(side="left", padx=(0, 8))
         self.button(replace, "Replace Runner", self.replace_from_gui, primary=True, compact=True).pack(side="left")
 
         self.update_mode()
@@ -749,6 +795,7 @@ class RestreamApp(tk.Tk):
         top.pack(fill="x", padx=16, pady=(0, 14))
         self.button(top, "Refresh Checks", self.refresh_wizard_checks, primary=True, compact=True).pack(side="left", padx=(0, 8))
         self.button(top, "Open Setup Guide", self.open_setup_guide, compact=True).pack(side="left", padx=8)
+        self.button(top, "Copy Diagnostics", self.copy_diagnostics, compact=True).pack(side="left", padx=8)
         tk.Label(top, textvariable=self.wizard_status_var, bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(12, 0))
 
         checks = self.panel(parent, "1. Install Check")
@@ -778,14 +825,14 @@ class RestreamApp(tk.Tk):
         ).pack(fill="x", padx=16, pady=(0, 8))
         layout_actions = tk.Frame(layout_panel, bg=PANEL)
         layout_actions.pack(fill="x", padx=16, pady=(0, 14))
-        self.button(layout_actions, "Quick Template Builder", lambda: self.show_page("OBS Builder"), primary=True, compact=True).pack(side="left", padx=(0, 8))
-        self.button(layout_actions, "Custom OBS Layout", lambda: self.show_page("OBS Layout"), compact=True).pack(side="left", padx=8)
+        self.button(layout_actions, "Template Setup", lambda: self.show_page("Template Setup"), primary=True, compact=True).pack(side="left", padx=(0, 8))
+        self.button(layout_actions, "Custom OBS Layout", lambda: self.show_page("Custom OBS Layout"), compact=True).pack(side="left", padx=8)
         self.button(layout_actions, "Scan OBS", self.scan_obs_builder, compact=True).pack(side="left", padx=8)
 
         audio_panel = self.panel(parent, "4. Audio")
         tk.Label(
             audio_panel,
-            text="Launch runner VLC windows first, then map runner audio. Runner audio priority should be Window title must match.",
+            text="Launch runner VLC windows first, then map runner audio. Do not mute VLC. If you do not want to hear VLC locally, route VLC to an unused output device in Windows Volume Mixer.",
             bg=PANEL,
             fg=MUTED,
             anchor="w",
@@ -793,8 +840,8 @@ class RestreamApp(tk.Tk):
         ).pack(fill="x", padx=16, pady=(0, 8))
         audio_actions = tk.Frame(audio_panel, bg=PANEL)
         audio_actions.pack(fill="x", padx=16, pady=(0, 14))
-        self.button(audio_actions, "Go to Audio", lambda: self.show_page("Audio"), compact=True).pack(side="left", padx=(0, 8))
-        self.button(audio_actions, "Load Audio Windows", self.wizard_load_audio_windows, primary=True, compact=True).pack(side="left", padx=8)
+        self.button(audio_actions, "Go to Audio", lambda: self.show_page("Audio"), primary=True, compact=True).pack(side="left", padx=(0, 8))
+        self.button(audio_actions, "Open Volume Mixer", open_windows_volume_mixer, compact=True).pack(side="left", padx=8)
 
         race_panel = self.panel(parent, "5. First Race Test")
         tk.Label(
@@ -837,6 +884,20 @@ class RestreamApp(tk.Tk):
         self.sync_panel.pack(fill="both", expand=True)
 
     def _build_audio_panel(self, parent: tk.Frame) -> None:
+        help_panel = self.panel(parent, "VLC Listening Setup")
+        tk.Label(
+            help_panel,
+            text="Leave VLC unmuted so OBS can capture it. To stop hearing runner audio in your speakers/headphones, open Windows Volume Mixer and set VLC media player to an unused output device such as a monitor, unused headset, or virtual cable.",
+            bg=PANEL,
+            fg=MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=1100,
+        ).pack(fill="x", padx=16, pady=(4, 8))
+        help_actions = tk.Frame(help_panel, bg=PANEL)
+        help_actions.pack(fill="x", padx=16, pady=(0, 14))
+        self.button(help_actions, "Open Volume Mixer", open_windows_volume_mixer, primary=True, compact=True).pack(side="left", padx=(0, 8))
+
         p = self.panel(parent, "OBS Audio")
         top = tk.Frame(p, bg=PANEL)
         top.pack(fill="x", padx=16, pady=(4, 8))
@@ -884,7 +945,7 @@ class RestreamApp(tk.Tk):
         self.audio_mapper_frame.pack(fill="x", padx=16, pady=(0, 14))
 
     def _build_obs_builder(self, parent: tk.Frame) -> None:
-        p = self.panel(parent, "Quick Template Builder")
+        p = self.panel(parent, "Template Setup")
 
         top = tk.Frame(p, bg=PANEL)
         top.pack(fill="x", padx=16, pady=(4, 8))
@@ -923,7 +984,7 @@ class RestreamApp(tk.Tk):
         self.builder_text.pack(side="left", fill="both", expand=True)
         result_scroll.configure(command=self.builder_text.yview)
         self.set_builder_text(
-            "Quick Template Builder\n\n"
+            "Template Setup\n\n"
             "1. Open OBS and enable WebSocket.\n"
             "2. Click Scan OBS.\n"
             "3. Create Missing Defaults if you want the included Restream Control scenes and source names.\n\n"
@@ -934,27 +995,32 @@ class RestreamApp(tk.Tk):
         top = tk.Frame(parent, bg=BG)
         top.pack(fill="x", pady=(2, 6))
 
-        tk.Label(top, text="Layout", bg=BG, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 8))
-        ttk.Combobox(top, textvariable=self.layout_mode_var, values=["2P", "4P"], state="readonly", width=8).pack(side="left", padx=(0, 10), ipady=5)
-        tk.Label(top, text="Slot", bg=BG, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(4, 8))
-        layout_slot_combo = ttk.Combobox(top, textvariable=self.layout_slot_var, values=["R1", "R2", "R3", "R4"], state="readonly", width=8)
+        core_tools = tk.Frame(top, bg=BG)
+        core_tools.pack(side="left")
+
+        tk.Label(core_tools, text="Layout", bg=BG, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 8))
+        ttk.Combobox(core_tools, textvariable=self.layout_mode_var, values=["2P", "4P"], state="readonly", width=8).pack(side="left", padx=(0, 10), ipady=5)
+        tk.Label(core_tools, text="Runner", bg=BG, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(4, 8))
+        layout_slot_combo = ttk.Combobox(core_tools, textvariable=self.layout_slot_var, values=["R1", "R2", "R3", "R4"], state="readonly", width=8)
         layout_slot_combo.pack(side="left", padx=(0, 10), ipady=5)
         layout_slot_combo.bind("<<ComboboxSelected>>", self.on_layout_slot_changed)
-        tk.Label(top, text="Region", bg=BG, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(4, 8))
+        tk.Label(core_tools, text="Region", bg=BG, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(4, 8))
         ttk.Combobox(
-            top,
+            core_tools,
             textvariable=self.layout_region_type_var,
             values=LAYOUT_REGION_TYPES,
             state="readonly",
             width=16,
         ).pack(side="left", padx=(0, 12), ipady=5)
 
-        self.button(top, "Load Layout Image", self.load_layout_background, compact=True).pack(side="left", padx=(0, 8))
-        self.button(top, "Clear Layout Image", self.clear_layout_background, compact=True).pack(side="left", padx=(0, 8))
-        tk.Label(top, textvariable=self.layout_image_label_var, bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(0, 12))
-        tk.Label(top, text="Overlay layer", bg=BG, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 8))
+        image_tools = tk.Frame(top, bg=BG)
+        image_tools.pack(side="right")
+        tk.Label(image_tools, text="Layout Image", bg=BG, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 8))
+        self.button(image_tools, "Load", self.load_layout_background, compact=True).pack(side="left", padx=(0, 8))
+        self.button(image_tools, "Clear", self.clear_layout_background, compact=True).pack(side="left", padx=(0, 8))
+        tk.Label(image_tools, text="Overlay layer", bg=BG, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 8))
         ttk.Combobox(
-            top,
+            image_tools,
             textvariable=self.layout_image_layer_var,
             values=["Overlay above feeds", "Behind feeds"],
             state="readonly",
@@ -964,14 +1030,11 @@ class RestreamApp(tk.Tk):
         actions = tk.Frame(parent, bg=BG)
         actions.pack(fill="x", pady=(0, 8))
         self.button(actions, "Apply to OBS", self.apply_current_designer_layout_to_obs, primary=True, compact=True).pack(side="left", padx=(0, 8))
-        self.button(actions, "Undo", self.undo_layout_change, compact=True).pack(side="left", padx=8)
-        self.button(actions, "Delete", self.delete_selected_layout_region, compact=True, danger=True).pack(side="left", padx=8)
-        self.button(actions, "Clear Boxes", self.clear_layout_regions, compact=True, danger=True).pack(side="left", padx=8)
-        self.button(actions, "Remove Unused Sources", self.remove_unused_layout_sources, compact=True, danger=True).pack(side="left", padx=8)
+        self.button(actions, "Undo", self.undo_layout_change, compact=True).pack(side="left", padx=(0, 8))
 
-        copy_tools = tk.Frame(parent, bg=BG)
-        copy_tools.pack(fill="x", pady=(0, 8))
-        tk.Label(copy_tools, text="Copy runner", bg=BG, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 8))
+        copy_tools = tk.Frame(actions, bg=BG)
+        copy_tools.pack(side="right")
+        tk.Label(copy_tools, text="Copy", bg=BG, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 8))
         ttk.Combobox(copy_tools, textvariable=self.layout_copy_from_var, values=["R1", "R2", "R3", "R4"], state="readonly", width=7).pack(side="left", padx=(0, 8), ipady=5)
         tk.Label(copy_tools, text="to", bg=BG, fg=MUTED, font=("Segoe UI", 10)).pack(side="left", padx=(0, 8))
         ttk.Combobox(copy_tools, textvariable=self.layout_copy_to_var, values=["R1", "R2", "R3", "R4"], state="readonly", width=7).pack(side="left", padx=(0, 8), ipady=5)
@@ -984,11 +1047,10 @@ class RestreamApp(tk.Tk):
             width=14,
         ).pack(side="left", padx=(0, 8), ipady=5)
         self.button(copy_tools, "Copy Boxes", self.copy_runner_layout_regions, compact=True).pack(side="left", padx=(0, 8))
-        tk.Label(copy_tools, text="Copies that runner's box sizes, then you can drag them into place.", bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left")
 
         tk.Label(
             parent,
-            text="Custom OBS layout editor. Draw one box for each runner part, text, or image area. Hold Shift and click boxes to select multiple; use arrow keys to nudge selected boxes. Click empty space to clear selection. Overlay layer controls the full layout image; Image Region layer controls added image boxes.",
+            text="Draw one box for each runner part, text, or image area. Hold Shift and click boxes to select multiple; use arrow keys to nudge selected boxes. Click empty space to clear selection.",
             bg=BG,
             fg=MUTED,
             font=("Segoe UI", 9),
@@ -1014,6 +1076,9 @@ class RestreamApp(tk.Tk):
         tk.Label(bottom, textvariable=self.layout_status_var, bg=BG, fg=MUTED, anchor="w", font=("Segoe UI", 9)).pack(side="left", fill="x", expand=True)
         self.button(bottom, "Save Layout", self.save_layout_designer, compact=True).pack(side="right", padx=(8, 0))
         self.button(bottom, "Reload Saved Layout", self.load_layout_designer, compact=True).pack(side="right", padx=(8, 0))
+        self.button(bottom, "Remove Unused Sources", self.remove_unused_layout_sources, compact=True, danger=True).pack(side="right", padx=(8, 0))
+        self.button(bottom, "Clear Boxes", self.clear_layout_regions, compact=True, danger=True).pack(side="right", padx=(8, 0))
+        self.button(bottom, "Delete", self.delete_selected_layout_region, compact=True, danger=True).pack(side="right", padx=(8, 0))
         selected = tk.Frame(parent, bg=BG)
         selected.pack(fill="x", pady=(4, 0))
         tk.Label(selected, text="Selected:", bg=BG, fg=TEXT, font=("Segoe UI", 9, "bold")).pack(side="left")
@@ -1021,14 +1086,14 @@ class RestreamApp(tk.Tk):
 
         text_tools = tk.Frame(parent, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
         text_tools.pack(fill="x", pady=(6, 0))
-        tk.Label(text_tools, text="Extra Text", bg=PANEL, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(10, 8), pady=8)
+        tk.Label(text_tools, text="Text Box", bg=PANEL, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(10, 8), pady=8)
         tk.Entry(text_tools, textvariable=self.layout_text_var, bg=INPUT_BG, fg=TEXT, insertbackground=TEXT, relief="flat").pack(side="left", fill="x", expand=True, padx=(0, 8), pady=8, ipady=5)
-        self.button(text_tools, "Update Selected Text", self.update_selected_layout_text, compact=True).pack(side="left", padx=(0, 10), pady=8)
+        self.button(text_tools, "Update Text", self.update_selected_layout_text, compact=True).pack(side="left", padx=(0, 10), pady=8)
         self.button(text_tools, "Clear Text Boxes", self.clear_layout_text_regions, compact=True, danger=True).pack(side="left", padx=(0, 10), pady=8)
 
         image_tools = tk.Frame(parent, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
         image_tools.pack(fill="x", pady=(6, 0))
-        tk.Label(image_tools, text="Image Region", bg=PANEL, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(10, 8), pady=8)
+        tk.Label(image_tools, text="Image", bg=PANEL, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(10, 8), pady=8)
         tk.Label(image_tools, text="Layer", bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(0, 6), pady=8)
         image_layer_combo = ttk.Combobox(
             image_tools,
@@ -1041,7 +1106,7 @@ class RestreamApp(tk.Tk):
         image_layer_combo.bind("<<ComboboxSelected>>", self.update_selected_layout_image_layer)
         tk.Entry(image_tools, textvariable=self.layout_image_path_var, bg=INPUT_BG, fg=TEXT, insertbackground=TEXT, relief="flat").pack(side="left", fill="x", expand=True, padx=(0, 8), pady=8, ipady=5)
         self.button(image_tools, "Choose Image", self.choose_layout_region_image, compact=True).pack(side="left", padx=(0, 8), pady=8)
-        self.button(image_tools, "Update Selected Image", self.update_selected_layout_image, compact=True).pack(side="left", padx=(0, 10), pady=8)
+        self.button(image_tools, "Update Image", self.update_selected_layout_image, compact=True).pack(side="left", padx=(0, 10), pady=8)
 
         self.load_layout_designer(show_status=False)
 
@@ -1070,7 +1135,7 @@ class RestreamApp(tk.Tk):
 
     def on_layout_slot_changed(self, _event=None) -> None:
         self.layout_region_type_var.set("Game")
-        self.layout_status_var.set(f"Slot {self.layout_slot_var.get()} selected. Region reset to Game.")
+        self.layout_status_var.set(f"Runner {self.layout_slot_var.get()} selected. Region reset to Game.")
 
     def layout_region_hit(self, x: float, y: float) -> tuple[Optional[dict[str, Any]], str]:
         for region in reversed(self.layout_regions):
@@ -1111,7 +1176,7 @@ class RestreamApp(tk.Tk):
         self.layout_image_layer_var.set(str(snapshot.get("layout_image_layer") or "Overlay above feeds"))
         self.set_layout_image_path(str(snapshot.get("background", "") or ""))
         self.load_layout_region_settings(None)
-        self.layout_status_var.set("Undid last OBS Layout change.")
+        self.layout_status_var.set("Undid last custom layout change.")
         self.redraw_layout_designer()
 
     def set_layout_image_path(self, path: str) -> None:
@@ -1189,7 +1254,7 @@ class RestreamApp(tk.Tk):
             "h": 1.0,
             "source": self.default_designer_source_name(self.layout_mode_var.get(), region),
             "image_path": "",
-            "text": f"Extra Text {text_index}" if region_type == "Text" and text_index else "",
+            "text": f"Text {text_index}" if region_type == "Text" and text_index else "",
             "text_index": text_index,
             "image_index": image_index,
             "layer": self.layout_image_region_layer_var.get() if region_type == "Image" else "",
@@ -1880,7 +1945,7 @@ class RestreamApp(tk.Tk):
     def apply_saved_designer_layout_to_obs(self) -> None:
         data = app_state.load_json(LAYOUT_DESIGN_FILE, {})
         if not isinstance(data, dict) or (not data.get("regions") and not data.get("background")):
-            messagebox.showinfo("OBS Layout", "No saved OBS Layout found. Open the OBS Layout tab, draw regions or load a layout image, then save the layout.")
+            messagebox.showinfo("Custom OBS Layout", "No saved custom layout found. Open Custom OBS Layout, draw regions or load a layout image, then save the layout.")
             return
         self.apply_designer_layout_to_obs(data, self.selected_builder_layouts(), save_first=False)
 
@@ -2363,6 +2428,43 @@ class RestreamApp(tk.Tk):
         row3.pack(fill="x", padx=16, pady=(0, 12))
         self.button(row3, "Export Settings", self.export_settings, primary=True).pack(side="left", padx=(0, 8))
         self.button(row3, "Import Settings", self.import_settings).pack(side="left", padx=8)
+        self.button(row3, "Copy Diagnostics", self.copy_diagnostics, compact=True).pack(side="left", padx=8)
+
+        vlc_panel = self.panel(parent, "VLC Audio Output")
+        tk.Label(
+            vlc_panel,
+            text="Optional: launch VLC through a specific Windows output device so runner audio stays out of your speakers while OBS can still capture it.",
+            bg=PANEL,
+            fg=MUTED,
+            font=("Segoe UI", 9),
+            anchor="w",
+            wraplength=1100,
+        ).pack(fill="x", padx=16, pady=(0, 8))
+        vlc_row = tk.Frame(vlc_panel, bg=PANEL)
+        vlc_row.pack(fill="x", padx=16, pady=(0, 8))
+        tk.Label(vlc_row, text="VLC output", bg=PANEL, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 8))
+        self.vlc_audio_combo = ttk.Combobox(vlc_row, textvariable=self.vlc_audio_var, state="readonly", width=72)
+        self.vlc_audio_combo.pack(side="left", fill="x", expand=True, ipady=5, padx=(0, 8))
+        self.button(vlc_row, "Refresh Devices", self.refresh_vlc_audio_devices, compact=True).pack(side="left", padx=(0, 8))
+        self.button(vlc_row, "Save & Relaunch", self.save_vlc_audio_device_and_relaunch, primary=True, compact=True).pack(side="left", padx=(0, 8))
+        self.button(vlc_row, "Use Windows Default", self.clear_vlc_audio_device, compact=True).pack(side="left", padx=(0, 8))
+        self.button(vlc_row, "Open Volume Mixer", open_windows_volume_mixer, compact=True).pack(side="left")
+        tk.Label(vlc_panel, textvariable=self.vlc_audio_status_var, bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", padx=16, pady=(0, 12))
+
+        backup_panel = self.panel(parent, "Local Data Backups")
+        backup_top = tk.Frame(backup_panel, bg=PANEL)
+        backup_top.pack(fill="x", padx=16, pady=(4, 8))
+        self.button(backup_top, "Backup Local Data", self.backup_local_data, primary=True, compact=True).pack(side="left", padx=(0, 8))
+        self.button(backup_top, "Restore Runner List", self.restore_runner_list, compact=True).pack(side="left", padx=8)
+        self.button(backup_top, "Open Runner CSV", self.open_runner_csv, compact=True).pack(side="left", padx=8)
+        self.button(backup_top, "Open Backup Folder", lambda: open_folder(self.local_backup_dir()), compact=True).pack(side="left", padx=8)
+        tk.Label(
+            backup_panel,
+            text="Backs up your runner list, crop presets, and custom OBS layout. These local files are ignored by Git.",
+            bg=PANEL,
+            fg=MUTED,
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", padx=16, pady=(0, 12))
 
         runner_panel = self.panel(parent, "Runner List")
         edit_top = tk.Frame(runner_panel, bg=PANEL)
@@ -2371,6 +2473,11 @@ class RestreamApp(tk.Tk):
         self.edit_runner_combo.pack(side="left", fill="x", expand=True, ipady=5, padx=(0, 8))
         self.edit_runner_combo.bind("<<ComboboxSelected>>", self.load_runner_editor_selection)
         self.button(edit_top, "Reload", self.refresh_runner_editor, compact=True).pack(side="left")
+
+        edit_actions = tk.Frame(runner_panel, bg=PANEL)
+        edit_actions.pack(fill="x", padx=16, pady=(0, 8))
+        self.button(edit_actions, "Merge Duplicates", self.merge_duplicate_runners, compact=True).pack(side="left", padx=(0, 8))
+        self.button(edit_actions, "Delete Selected Runner", self.delete_selected_runner, danger=True, compact=True).pack(side="left", padx=8)
 
         edit_fields = tk.Frame(runner_panel, bg=PANEL)
         edit_fields.pack(fill="x", padx=16, pady=(0, 8))
@@ -2420,6 +2527,97 @@ class RestreamApp(tk.Tk):
         self.load_source_map_editor()
 
         self.refresh_runner_editor()
+        self.refresh_vlc_audio_devices()
+
+    def discover_vlc_audio_devices(self) -> list[dict[str, str]]:
+        if os.name != "nt":
+            return []
+        script = r"""
+Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
+  Where-Object { $_.InstanceId -like 'SWD\MMDEVAPI\{0.0.0*' } |
+  Select-Object FriendlyName, InstanceId |
+  ConvertTo-Json -Depth 2
+"""
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+                capture_output=True,
+                text=True,
+                timeout=8,
+                creationflags=hidden_creationflags(),
+            )
+        except Exception:
+            return []
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+        try:
+            data = json.loads(result.stdout)
+        except Exception:
+            return []
+        if isinstance(data, dict):
+            data = [data]
+        devices: list[dict[str, str]] = []
+        for item in data if isinstance(data, list) else []:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("FriendlyName", "")).strip()
+            instance_id = str(item.get("InstanceId", "")).strip()
+            match = re.search(r"SWD\\MMDEVAPI\\(.+)$", instance_id, re.I)
+            if not name or not match:
+                continue
+            devices.append({"name": name, "id": match.group(1)})
+        return devices
+
+    def refresh_vlc_audio_devices(self) -> None:
+        if self.vlc_audio_combo is None:
+            return
+        saved_device = str(app_state.load_config().get("vlc_audio_device", "")).strip()
+        devices = self.discover_vlc_audio_devices()
+        labels = ["Windows default"]
+        self.vlc_audio_devices = {"Windows default": ""}
+        used: set[str] = set(labels)
+        selected = "Windows default"
+        for device in devices:
+            base = device["name"]
+            label = base
+            if label in used:
+                label = f"{base} | {device['id']}"
+            used.add(label)
+            self.vlc_audio_devices[label] = device["id"]
+            labels.append(label)
+            if saved_device and saved_device.lower() == device["id"].lower():
+                selected = label
+        if saved_device and selected == "Windows default":
+            label = f"Saved device not detected | {saved_device}"
+            self.vlc_audio_devices[label] = saved_device
+            labels.append(label)
+            selected = label
+        self.vlc_audio_combo["values"] = labels
+        self.vlc_audio_var.set(selected)
+        self.vlc_audio_status_var.set(
+            f"Loaded {len(devices)} playback device(s)." if devices else "No Windows playback devices detected. Use Volume Mixer manually."
+        )
+
+    def save_vlc_audio_device(self) -> None:
+        label = self.vlc_audio_var.get().strip() or "Windows default"
+        device_id = self.vlc_audio_devices.get(label, "")
+        config = app_state.load_config()
+        config["vlc_audio_device"] = device_id
+        app_state.save_config(config)
+        if device_id:
+            self.vlc_audio_status_var.set("Saved VLC output device. Relaunch runner streams for this to take effect.")
+            self.log_status("Saved VLC output device. Relaunch runner streams for this to take effect.")
+        else:
+            self.vlc_audio_status_var.set("VLC will use the Windows default output device.")
+            self.log_status("VLC audio output set to Windows default.")
+
+    def save_vlc_audio_device_and_relaunch(self) -> None:
+        self.save_vlc_audio_device()
+        self.relaunch_current_race("Save VLC Audio Output & Relaunch")
+
+    def clear_vlc_audio_device(self) -> None:
+        self.vlc_audio_var.set("Windows default")
+        self.save_vlc_audio_device()
 
     def load_runners_into_setup(self) -> None:
         self.launch_mod = load_launch_module()
@@ -2522,6 +2720,7 @@ class RestreamApp(tk.Tk):
             return
         try:
             fieldnames, rows = mod.read_runner_csv_rows()
+            self.backup_file(RUNNERS_CSV, "runners-before-edit", silent=True)
             display_key, twitch_key, aliases_key = mod.csv_keys(fieldnames)
             if aliases_key is None:
                 aliases_key = "aliases"
@@ -2543,6 +2742,162 @@ class RestreamApp(tk.Tk):
             self.edit_runner_var.set(f"{display} - {twitch}")
             self.refresh_runner_editor()
             self.log_status(f"Saved runner: {display} - {twitch}")
+        except Exception as exc:
+            messagebox.showerror("Runner list", str(exc))
+
+    def delete_selected_runner(self) -> None:
+        mod = self.launch_mod
+        if not mod:
+            messagebox.showerror("Runner list", "launch_crosskeys.py could not be loaded.")
+            return
+        selected = self.edit_runner_var.get()
+        twitch = selected.rsplit(" - ", 1)[-1].strip() if " - " in selected else self.edit_twitch_var.get().strip()
+        twitch = mod.normalize_twitch_input(twitch)
+        if not twitch:
+            messagebox.showwarning("Runner list", "Select a runner to delete.")
+            return
+        if not messagebox.askyesno("Delete runner", f"Delete twitch.tv/{twitch} from the runner list?"):
+            return
+        try:
+            fieldnames, rows = mod.read_runner_csv_rows()
+            display_key, twitch_key, _aliases_key = mod.csv_keys(fieldnames)
+            kept = [
+                row for row in rows
+                if mod.norm_key(mod.normalize_twitch_input(row.get(twitch_key, ""))) != mod.norm_key(twitch)
+            ]
+            if len(kept) == len(rows):
+                messagebox.showinfo("Delete runner", "That runner was not found in the CSV.")
+                return
+            self.backup_file(RUNNERS_CSV, "runners-before-delete", silent=True)
+            mod.write_runner_csv_rows(fieldnames, kept)
+            self.edit_runner_var.set("")
+            self.edit_display_var.set("")
+            self.edit_twitch_var.set("")
+            self.edit_aliases_var.set("")
+            self.load_runners_into_setup()
+            self.log_status(f"Deleted runner: {twitch}")
+        except Exception as exc:
+            messagebox.showerror("Delete runner", str(exc))
+
+    def merge_duplicate_runners(self) -> None:
+        mod = self.launch_mod
+        if not mod:
+            messagebox.showerror("Runner list", "launch_crosskeys.py could not be loaded.")
+            return
+        try:
+            fieldnames, rows = mod.read_runner_csv_rows()
+            display_key, twitch_key, aliases_key = mod.csv_keys(fieldnames)
+            if aliases_key is None:
+                aliases_key = "aliases"
+                fieldnames.append(aliases_key)
+                for row in rows:
+                    row[aliases_key] = ""
+
+            merged: dict[str, dict[str, str]] = {}
+            order: list[str] = []
+            removed = 0
+            for row in rows:
+                twitch = mod.normalize_twitch_input(row.get(twitch_key, ""))
+                key = mod.norm_key(twitch)
+                if not key:
+                    continue
+                display = row.get(display_key, "").strip() or twitch
+                aliases = list(mod.parse_aliases(row.get(aliases_key, "")))
+                if key not in merged:
+                    clean_row = dict(row)
+                    clean_row[twitch_key] = twitch
+                    clean_row[display_key] = display
+                    clean_row[aliases_key] = ";".join(aliases)
+                    merged[key] = clean_row
+                    order.append(key)
+                    continue
+                removed += 1
+                existing = merged[key]
+                alias_values = list(mod.parse_aliases(existing.get(aliases_key, "")))
+                known = {mod.norm_key(existing.get(display_key, "")), mod.norm_key(existing.get(twitch_key, ""))}
+                known.update(mod.norm_key(value) for value in alias_values)
+                for value in [display, row.get(twitch_key, ""), *aliases]:
+                    value = str(value or "").strip()
+                    if value and mod.norm_key(value) not in known:
+                        alias_values.append(value)
+                        known.add(mod.norm_key(value))
+                existing[aliases_key] = ";".join(alias_values)
+
+            if removed == 0:
+                messagebox.showinfo("Merge duplicates", "No duplicate Twitch names were found.")
+                return
+            if not messagebox.askyesno("Merge duplicates", f"Merge duplicate Twitch entries and remove {removed} duplicate row(s)?"):
+                return
+            self.backup_file(RUNNERS_CSV, "runners-before-merge", silent=True)
+            mod.write_runner_csv_rows(fieldnames, [merged[key] for key in order])
+            self.load_runners_into_setup()
+            self.refresh_runner_editor()
+            self.log_status(f"Merged runner duplicates: removed {removed} duplicate row(s).")
+            messagebox.showinfo("Merge duplicates", f"Merged duplicates and removed {removed} duplicate row(s).")
+        except Exception as exc:
+            messagebox.showerror("Merge duplicates", str(exc))
+
+    def local_backup_dir(self) -> Path:
+        backup_dir = app_state.STATE_DIR / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        return backup_dir
+
+    def backup_file(self, path: Path, label: str, silent: bool = False) -> Path | None:
+        source = Path(path)
+        if not source.exists():
+            return None
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        suffix = source.suffix or ".bak"
+        destination = self.local_backup_dir() / f"{label}_{timestamp}{suffix}"
+        shutil.copy2(source, destination)
+        if not silent:
+            self.log_status(f"Backed up {source.name} to {destination}")
+        return destination
+
+    def backup_local_data(self) -> None:
+        targets = [
+            (RUNNERS_CSV, "runners"),
+            (app_state.CROP_PRESETS_FILE, "crop_presets"),
+            (LAYOUT_DESIGN_FILE, "layout_designer"),
+        ]
+        backed_up = []
+        for path, label in targets:
+            backup = self.backup_file(path, label, silent=True)
+            if backup:
+                backed_up.append(backup.name)
+        if not backed_up:
+            messagebox.showinfo("Local data backups", "No local data files were found to back up yet.")
+            return
+        self.log_status(f"Backed up local data: {', '.join(backed_up)}")
+        messagebox.showinfo("Local data backups", "Backed up:\n" + "\n".join(backed_up))
+
+    def restore_runner_list(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Restore runner list",
+            initialdir=str(self.local_backup_dir()),
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        if not messagebox.askyesno("Restore runner list", "Replace the current runner list with this CSV?"):
+            return
+        try:
+            self.backup_file(RUNNERS_CSV, "runners-before-restore", silent=True)
+            RUNNERS_CSV.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(Path(path), RUNNERS_CSV)
+            self.load_runners_into_setup()
+            self.refresh_runner_editor()
+            self.log_status(f"Restored runner list from {path}")
+            messagebox.showinfo("Restore runner list", f"Restored runner list from:\n{path}")
+        except Exception as exc:
+            messagebox.showerror("Restore runner list", str(exc))
+
+    def open_runner_csv(self) -> None:
+        try:
+            RUNNERS_CSV.parent.mkdir(parents=True, exist_ok=True)
+            if not RUNNERS_CSV.exists():
+                RUNNERS_CSV.write_text("display_name,twitch_name,aliases\n", encoding="utf-8")
+            os.startfile(str(RUNNERS_CSV))
         except Exception as exc:
             messagebox.showerror("Runner list", str(exc))
 
@@ -2636,6 +2991,7 @@ class RestreamApp(tk.Tk):
             mod.update_obs_text_files(mode, selected, comms)
             mod.save_last_setup(mode, selected, comms)
             for slot in available_slots:
+                mod.close_runner_window(slot)
                 mod.launch_stream(slot, selected[slot])
             self.reload_names()
             launched_selected = {slot: selected[slot] for slot in available_slots}
@@ -2647,7 +3003,77 @@ class RestreamApp(tk.Tk):
         except Exception as exc:
             messagebox.showerror("Launch failed", str(exc))
 
+    def current_race_runners(self) -> tuple[int, dict[int, Any], str]:
+        mod = self.launch_mod
+        if not mod:
+            raise RuntimeError("launch_crosskeys.py could not be loaded.")
+        race = app_state.load_current_race()
+        runners = race.get("runners", {})
+        if not isinstance(runners, dict) or not runners:
+            raise RuntimeError("No saved race is available to relaunch.")
+        mode = int(str(race.get("mode", self.mode_var.get())).replace("P", "") or self.mode_var.get())
+        selected: dict[int, Any] = {}
+        for slot_raw, runner_data in runners.items():
+            if not isinstance(runner_data, dict):
+                continue
+            try:
+                slot = int(slot_raw)
+            except ValueError:
+                continue
+            if slot < 1 or slot > mode:
+                continue
+            display = str(runner_data.get("display_name") or runner_data.get("twitch_name") or f"Runner {slot}").strip()
+            twitch = str(runner_data.get("twitch_name") or "").strip()
+            if twitch:
+                selected[slot] = mod.Runner(display, twitch)
+        if not selected:
+            raise RuntimeError("The saved race has no usable runners.")
+        return mode, selected, str(race.get("comms", "") or "")
+
+    def relaunch_current_race(self, reason: str = "Relaunch") -> bool:
+        mod = self.launch_mod
+        if not mod:
+            messagebox.showerror(reason, "launch_crosskeys.py could not be loaded.")
+            return False
+        try:
+            mode, selected, comms = self.current_race_runners()
+            errors = self.launch_prereq_errors()
+            if errors:
+                messagebox.showerror(f"{reason} blocked", "\n".join(errors))
+                self.log_status(f"{reason} blocked: " + "; ".join(errors))
+                return False
+            available_slots, stream_errors = self.partition_available_streams(selected, sorted(selected))
+            if not available_slots:
+                messagebox.showerror(f"{reason} blocked", "\n".join(stream_errors))
+                self.log_status(f"{reason} blocked: no saved streams are available.")
+                return False
+            if not messagebox.askyesno(reason, f"Close and relaunch {len(available_slots)} saved runner stream(s)?"):
+                return False
+            mod.update_obs_text_files(mode, selected, comms)
+            mod.save_last_setup(mode, selected, comms)
+            for slot in available_slots:
+                mod.close_runner_window(slot)
+                mod.launch_stream(slot, selected[slot])
+            self.reload_names()
+            launched_selected = {slot: selected[slot] for slot in available_slots}
+            self.apply_saved_crops_after_launch(mode, launched_selected)
+            skipped = f" Skipped: {'; '.join(stream_errors)}" if stream_errors else ""
+            self.log_status(f"Relaunched {len(available_slots)} saved stream(s).{skipped}")
+            if stream_errors:
+                messagebox.showwarning("Some streams skipped", "Relaunched available streams.\n\nSkipped:\n" + "\n".join(stream_errors))
+            return True
+        except Exception as exc:
+            messagebox.showerror(reason, str(exc))
+            self.log_status(f"{reason} failed: {exc}")
+            return False
+
     def replace_from_gui(self) -> None:
+        self.launch_slot_from_setup(replace=True)
+
+    def relaunch_slot_from_gui(self) -> None:
+        self.launch_slot_from_setup(replace=False)
+
+    def launch_slot_from_setup(self, replace: bool) -> None:
         mod = self.launch_mod
         if not mod:
             messagebox.showerror("Missing launcher", "launch_crosskeys.py could not be loaded.")
@@ -2657,16 +3083,19 @@ class RestreamApp(tk.Tk):
             runner = self.runner_rows[slot].to_runner()
             errors = self.launch_prereq_errors()
             if errors:
-                messagebox.showerror("Replace blocked", "\n".join(errors))
-                self.log_status("Replace blocked: " + "; ".join(errors))
+                title = "Replace blocked" if replace else "Relaunch blocked"
+                messagebox.showerror(title, "\n".join(errors))
+                self.log_status(f"{title}: " + "; ".join(errors))
                 return
             _available_slots, stream_errors = self.partition_available_streams({slot: runner}, [slot])
             if stream_errors:
                 messagebox.showerror("Stream unavailable", "\n".join(stream_errors))
-                self.log_status("Replace blocked: " + "; ".join(stream_errors))
+                action = "Replace" if replace else "Relaunch"
+                self.log_status(f"{action} blocked: " + "; ".join(stream_errors))
                 return
             self.save_new_runners_to_list({slot: runner})
-            if not messagebox.askyesno("Replace runner", f"Close and relaunch RUNNER {slot} as {runner.display_name}? "):
+            action_word = "replace" if replace else "relaunch"
+            if not messagebox.askyesno(f"{action_word.title()} runner", f"Close and {action_word} RUNNER {slot} as {runner.display_name}? "):
                 return
             mod.close_runner_window(slot)
             mod.write_text_file(mod.OBS_TEXT_DIR / f"runner{slot}.txt", runner.display_name)
@@ -2677,10 +3106,10 @@ class RestreamApp(tk.Tk):
             app_state.update_current_race_slot(slot, runner)
             mod.launch_stream(slot, runner)
             self.reload_names()
-            self.log_status(f"Replaced Runner {slot}: {runner.display_name}")
+            self.log_status(f"{'Replaced' if replace else 'Relaunched'} Runner {slot}: {runner.display_name}")
             self.apply_saved_crops_after_replace(slot, runner)
         except Exception as exc:
-            messagebox.showerror("Replace failed", str(exc))
+            messagebox.showerror("Replace failed" if replace else "Relaunch failed", str(exc))
 
     def clear_runner_fields(self) -> None:
         for row in self.runner_rows.values():
@@ -2887,8 +3316,6 @@ class RestreamApp(tk.Tk):
         found, missing = self.crop_preset_counts(layout, runners) if runners else (0, expected * 3)
         self.dashboard_layout_var.set(f"Layout: {layout}")
         self.dashboard_runners_var.set(f"Runners: {runner_count}/{expected}")
-        self.dashboard_crops_var.set(f"Crops: {found} OK / {missing} missing")
-        self.dashboard_screenshots_var.set(f"Screenshots: {self.screenshot_count()}")
         if include_obs:
             self.dashboard_obs_var.set("OBS: checking...")
             threading.Thread(target=self.update_obs_dashboard_worker, daemon=True).start()
@@ -3129,7 +3556,7 @@ class RestreamApp(tk.Tk):
         if not path:
             return
         try:
-            data = json.loads(Path(path).read_text(encoding="utf-8"))
+            data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
             config = data.get("config") if isinstance(data, dict) else None
             if not isinstance(config, dict):
                 raise ValueError("This does not look like a Restream Control settings export.")
@@ -3149,6 +3576,7 @@ class RestreamApp(tk.Tk):
             self.obs_host_var.set(str(obs_config.get("host", "localhost")))
             self.obs_port_var.set(str(obs_config.get("port", 4455)))
             self.obs_password_var.set(str(obs_config.get("password", "")))
+        self.refresh_vlc_audio_devices()
         self.load_source_map_editor()
 
     def default_source_map(self) -> dict[str, str]:
@@ -3886,7 +4314,7 @@ class RestreamApp(tk.Tk):
 
         obs_version = getattr(version, "obs_version", None) or getattr(version, "obs_web_socket_version", None) or "connected"
         lines: list[str] = [
-            "Quick Template Builder Scan",
+            "Template Setup Scan",
             f"OBS: {obs_version}",
             "",
             f"Detected scenes: {len(snapshot['scenes'])}",
@@ -3922,9 +4350,9 @@ class RestreamApp(tk.Tk):
         lines.append("-" * 40)
         if total_missing:
             lines.append("Create Missing Defaults can add the included template scenes/sources.")
-            lines.append("Existing scene items are left where they are. Use OBS Layout for custom drawn positions.")
+            lines.append("Existing scene items are left where they are. Use Custom OBS Layout for custom drawn positions.")
         else:
-            lines.append("Everything expected for the selected template exists. Use OBS Layout if you want a custom drawn layout.")
+            lines.append("Everything expected for the selected template exists. Use Custom OBS Layout if you want a custom drawn layout.")
 
         self.builder_status_var.set(f"Scan complete: {total_found} found, {total_missing} missing.")
         self.set_builder_text("\n".join(lines))
@@ -4586,11 +5014,11 @@ class RestreamApp(tk.Tk):
         except Exception:
             obs_ok = False
         results = [
-            (CONTROL_SCRIPT.exists(), f"Launcher script: {CONTROL_SCRIPT}"),
-            (SYNC_TOOL.exists(), f"Sync tool: {SYNC_TOOL}"),
+            (bundled_or_exists(CONTROL_SCRIPT), "Launcher module"),
+            (bundled_or_exists(SYNC_TOOL), "Sync module"),
             (SCREENSHOT_SCRIPT.exists(), f"Screenshot helper: {SCREENSHOT_SCRIPT}"),
             (RUNNERS_CSV.exists(), f"Runner CSV: {RUNNERS_CSV}"),
-            (CROPPING_TOOL.exists() or LEGACY_CROPPING_TOOL.exists(), "Cropping tool script"),
+            (app_state.IS_FROZEN or CROPPING_TOOL.exists() or LEGACY_CROPPING_TOOL.exists(), "Cropping module"),
             (importlib.util.find_spec("PIL") is not None, "Python package: Pillow"),
             (importlib.util.find_spec("obsws_python") is not None, "Python package: obsws-python"),
             (self.streamlink_available(), "Command available: streamlink"),
@@ -4616,15 +5044,50 @@ class RestreamApp(tk.Tk):
         else:
             messagebox.showinfo("Preflight check", message)
 
+    def diagnostics_report(self) -> str:
+        lines = [
+            "Restream Control Diagnostics",
+            "-" * 32,
+            f"Packaged exe: {'yes' if app_state.IS_FROZEN else 'no'}",
+            f"Python: {sys.version.split()[0]}",
+            f"Platform: {sys.platform}",
+            f"App folder: {BASE_DIR}",
+            f"Repo/root folder: {REPO_ROOT}",
+            f"Runner CSV: {RUNNERS_CSV} ({'found' if RUNNERS_CSV.exists() else 'missing'})",
+            f"OBS text folder: {OBS_TEXT_DIR}",
+            f"Screenshot folder: {SCREENSHOT_DIR}",
+            f"State folder: {app_state.STATE_DIR}",
+            f"VLC found: {'yes' if self.vlc_available() else 'no'}",
+            f"Streamlink found: {'yes' if self.streamlink_available() else 'no'}",
+        ]
+        obs_config = app_state.load_config().get("obs_websocket", {})
+        if isinstance(obs_config, dict):
+            lines.append(f"OBS websocket: {obs_config.get('host', 'localhost')}:{obs_config.get('port', 4455)}")
+        lines.append("")
+        lines.append("Checks:")
+        for ok, label in self.preflight_results(include_obs=True):
+            lines.append(f"{'OK' if ok else 'MISSING'} - {label}")
+        if app_state.CRASH_LOG_FILE.exists():
+            lines.append("")
+            lines.append(f"Crash log: {app_state.CRASH_LOG_FILE}")
+        return "\n".join(lines)
+
+    def copy_diagnostics(self) -> None:
+        report = self.diagnostics_report()
+        self.clipboard_clear()
+        self.clipboard_append(report)
+        self.log_status("Copied diagnostics to clipboard.")
+        messagebox.showinfo("Diagnostics", "Copied diagnostics to clipboard.")
+
     def refresh_status(self) -> None:
         # Reload module so app picks up launcher changes after replacement.
         self.launch_mod = load_launch_module()
         pieces = []
         pieces.append(f"Folder: {BASE_DIR}")
-        pieces.append("Launcher: " + ("OK" if CONTROL_SCRIPT.exists() else "Missing"))
+        pieces.append("Launcher: " + ("OK" if bundled_or_exists(CONTROL_SCRIPT) else "Missing"))
         pieces.append("Runners: " + ("OK" if RUNNERS_CSV.exists() else "Missing"))
-        pieces.append("Cropping: " + ("OK" if (CROPPING_TOOL.exists() or LEGACY_CROPPING_TOOL.exists()) else "Missing"))
-        pieces.append("Sync: " + ("OK" if SYNC_TOOL.exists() else "Missing"))
+        pieces.append("Cropping: " + ("OK" if (app_state.IS_FROZEN or CROPPING_TOOL.exists() or LEGACY_CROPPING_TOOL.exists()) else "Missing"))
+        pieces.append("Sync: " + ("OK" if bundled_or_exists(SYNC_TOOL) else "Missing"))
         self.status_var.set("  |  ".join(pieces))
         self.update_dashboard(include_obs=True)
         if hasattr(self, "checklist_text"):
@@ -4633,6 +5096,16 @@ class RestreamApp(tk.Tk):
             self.reload_names()
 
 
+def log_crash(exc: BaseException) -> None:
+    app_state.ensure_state_dir()
+    details = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    app_state.CRASH_LOG_FILE.write_text(details, encoding="utf-8")
+
+
 if __name__ == "__main__":
-    app = RestreamApp()
-    app.mainloop()
+    try:
+        app = RestreamApp()
+        app.mainloop()
+    except Exception as exc:
+        log_crash(exc)
+        raise
