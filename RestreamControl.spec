@@ -12,6 +12,7 @@ a = Analysis(
     hiddenimports=[
         "app_state",
         "cropping_tool",
+        "media_feed_service",
         "launch_crosskeys",
         "obs_crop_service",
         "stream_syncer",

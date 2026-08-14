@@ -22,6 +22,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "runner_csv": str(REPO_ROOT / "data" / "runners.csv"),
     "quality": "720p60,720p,480p,360p,1080p60,1080p,best",
     "vlc_audio_device": "",
+    "media_feed_port_base": 5001,
+    "playback_engine": "VLC Windows",
     "obs_websocket": {
         "host": "localhost",
         "port": 4455,

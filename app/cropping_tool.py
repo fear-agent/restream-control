@@ -3,6 +3,8 @@ import json
 import re
 import subprocess
 import time
+import base64
+from io import BytesIO
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
@@ -137,7 +139,12 @@ class CropPanel(tk.Frame):
         self.runner_crop_slot_var = tk.StringVar()
         self.active_runner_var = tk.StringVar(value="No runner selected")
         self.runner_crop_part_var = tk.StringVar(value="Stream")
+        self.capture_mode_var = tk.StringVar(value=str(app_state.load_config().get("playback_engine", "VLC Windows")))
+        self.capture_playback_var = tk.StringVar()
+        self.screenshot_button_text = tk.StringVar(value="Take Screenshot")
+        self.instructions_var = tk.StringVar()
         self.part_status_vars = {}
+        self.part_rows = {}
         self.show_obs_settings_var = tk.BooleanVar(value=False)
 
         self.config_data = load_config()
@@ -191,7 +198,9 @@ class CropPanel(tk.Frame):
 
         topbar = ttk.Frame(left)
         topbar.pack(fill=tk.X, padx=8, pady=6)
-        ttk.Button(topbar, text="Take Screenshot", command=self.capture_and_load_selected_slot).pack(side=tk.LEFT, padx=(6,0))
+        ttk.Label(topbar, text="Playback:").pack(side=tk.LEFT, padx=(6, 4))
+        ttk.Label(topbar, textvariable=self.capture_playback_var).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(topbar, textvariable=self.screenshot_button_text, command=self.capture_and_load_selected_slot).pack(side=tk.LEFT, padx=(6,0))
         ttk.Button(topbar, text="Delete Current", command=self.delete_current_screenshot).pack(side=tk.LEFT, padx=(6,0))
         ttk.Button(topbar, text="Clear Screenshot Folder", command=self.clear_screenshot_folder).pack(side=tk.LEFT, padx=(6,0))
         ttk.Button(topbar, text="Reapply This Runner", command=self.apply_all_runner_crops).pack(side=tk.LEFT, padx=(6,0))
@@ -199,11 +208,7 @@ class CropPanel(tk.Frame):
         self.image_label = ttk.Label(topbar, text="No screenshot loaded")
         self.image_label.pack(side=tk.LEFT, padx=10)
 
-        ttk.Label(
-            left,
-            text="Choose a runner, take a screenshot, draw a box around the Game/Tracker/Timer area, then click Apply.",
-            foreground=MUTED,
-        ).pack(fill=tk.X, padx=10, pady=(0, 6))
+        ttk.Label(left, textvariable=self.instructions_var, foreground=MUTED).pack(fill=tk.X, padx=10, pady=(0, 6))
 
         self.canvas = tk.Canvas(left, bg="#111111", highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0,8))
@@ -228,6 +233,7 @@ class CropPanel(tk.Frame):
         for label, part in [("Game", "Stream"), ("Tracker", "Tracker"), ("Timer", "Timer"), ("Facecam", "Facecam")]:
             row = ttk.Frame(runner_memory)
             row.pack(fill=tk.X, padx=6, pady=3)
+            self.part_rows[part] = row
             ttk.Label(row, text=label, width=8).pack(side=tk.LEFT)
             ttk.Button(row, text="Apply", command=lambda p=part: self.save_apply_runner_part_crop(p)).pack(side=tk.LEFT, padx=(0, 5))
             var = tk.StringVar(value="no current runner")
@@ -274,6 +280,8 @@ class CropPanel(tk.Frame):
         target_names = obs_crop_service.all_target_names()
         self.target_var = tk.StringVar(value=target_names[0] if target_names else "")
         self.refresh_runner_options()
+        self.set_playback_engine(self.capture_mode_var.get(), refresh=False)
+        self.update_capture_mode_ui()
 
     def toggle_obs_settings(self):
         if self.show_obs_settings_var.get():
@@ -348,10 +356,68 @@ class CropPanel(tk.Frame):
         except Exception as e:
             messagebox.showerror("Image error", str(e))
 
+    def is_media_feed_mode(self):
+        return self.capture_mode_var.get() == "OBS Media Feeds"
+
+    def set_playback_engine(self, engine, refresh=True):
+        self.capture_mode_var.set("OBS Media Feeds" if str(engine) == "OBS Media Feeds" else "VLC Windows")
+        self.capture_playback_var.set("Direct to OBS" if self.is_media_feed_mode() else "Standard VLC")
+        self.update_capture_mode_ui()
+        if refresh:
+            self.select_runner_target(update_status=False)
+            self.refresh_memory_status()
+            self.update_part_statuses()
+
+    def preset_part_name(self, part):
+        return f"Media {part}" if self.is_media_feed_mode() else part
+
+    def source_name_for_slot_part(self, slot, part):
+        prefix = "Media " if self.is_media_feed_mode() else ""
+        return f"{self.race_mode_label()} R{int(slot)} {prefix}{part}"
+
+    def update_capture_mode_ui(self):
+        if self.is_media_feed_mode():
+            self.screenshot_button_text.set("Capture OBS Feed")
+            self.instructions_var.set(
+                "Choose a runner, capture its raw OBS media feed, draw a box around the Game/Tracker/Timer/Facecam area, then click Apply."
+            )
+        else:
+            self.screenshot_button_text.set("Take Screenshot")
+            self.instructions_var.set(
+                "Choose a runner, take a screenshot, draw a box around the Game/Tracker/Timer area, then click Apply."
+            )
+        facecam_row = self.part_rows.get("Facecam")
+        if facecam_row:
+            has_facecam = "Facecam" in self.crop_parts_for_current_layout()
+            if not has_facecam:
+                facecam_row.pack_forget()
+            elif not facecam_row.winfo_manager():
+                facecam_row.pack(fill=tk.X, padx=6, pady=3)
+
+    def on_capture_mode_changed(self, _event=None):
+        self.update_capture_mode_ui()
+        self.select_runner_target(update_status=False)
+        self.refresh_memory_status()
+        self.update_part_statuses()
+
     def capture_and_load_selected_slot(self):
         slot = self.selected_runner_slot()
         if not slot:
             messagebox.showwarning("No runner", "Select a current runner before taking a screenshot.")
+            return
+        if self.is_media_feed_mode():
+            try:
+                path = self.capture_obs_media_source(int(slot))
+                self.load_image_file(path)
+                self.set_status(f"Captured OBS media feed for Runner {slot}", ok=True)
+                self.refocus_tool()
+            except Exception as error:
+                messagebox.showerror(
+                    "OBS media screenshot failed",
+                    f"Could not capture Runner {slot}'s media feed.\n\n{error}\n\n"
+                    "Create the media layouts and start that runner's feed first.",
+                )
+                self.set_status(f"OBS media screenshot failed: {error}")
             return
         try:
             path = self.capture_runner_slot_fast(int(slot))
@@ -422,6 +488,32 @@ class CropPanel(tk.Frame):
         os.makedirs(SCREENSHOT_DIR, exist_ok=True)
         path = os.path.join(SCREENSHOT_DIR, f"runner{slot}_{time.strftime('%Y%m%d-%H%M%S')}.png")
         image = stream_syncer.ImageGrab.grab(bbox=(left, top, right, bottom)).convert("RGB")
+        image.save(path)
+        return path
+
+    def capture_obs_media_source(self, slot):
+        if not self.client or not self.connected:
+            self.connect_to_obs()
+        if not self.client or not self.connected:
+            raise RuntimeError("OBS is not connected.")
+        source_name = self.source_name_for_slot_part(slot, "Stream")
+        if source_name not in self.source_locations:
+            self.refresh_sources(show_message=False)
+        location = self.source_locations.get(source_name)
+        if not location:
+            raise RuntimeError(f"OBS source not found: {source_name}.")
+        container_name, item_id = location
+        transform = self.client.get_scene_item_transform(container_name, item_id).scene_item_transform
+        width = max(8, int(transform.get("sourceWidth") or 1280))
+        height = max(8, int(transform.get("sourceHeight") or 720))
+        response = self.client.get_source_screenshot(source_name, "png", width, height, 90)
+        image_data = getattr(response, "image_data", "")
+        if not image_data:
+            raise RuntimeError(f"OBS returned no image data for {source_name}.")
+        encoded = image_data.split(",", 1)[1] if "," in image_data else image_data
+        image = Image.open(BytesIO(base64.b64decode(encoded))).convert("RGB")
+        os.makedirs(SCREENSHOT_DIR, exist_ok=True)
+        path = os.path.join(SCREENSHOT_DIR, f"media_runner{slot}_{time.strftime('%Y%m%d-%H%M%S')}.png")
         image.save(path)
         return path
 
@@ -609,8 +701,7 @@ class CropPanel(tk.Frame):
                 if not isinstance(runner, dict):
                     continue
                 display = runner.get("display_name") or runner.get("twitch_name") or f"Runner {slot}"
-                twitch = runner.get("twitch_name") or ""
-                label = f"R{slot} - {display}" + (f" ({twitch})" if twitch else "")
+                label = f"R{slot} - {display}"
                 self.runner_option_slots[label] = slot
                 values.append(label)
         self.runner_combo.configure(values=values)
@@ -627,7 +718,7 @@ class CropPanel(tk.Frame):
         slot = self.selected_runner_slot()
         if not slot:
             return None
-        return f"{self.race_mode_label()} R{slot} {part or self.runner_crop_part_var.get()}"
+        return self.source_name_for_slot_part(slot, part or self.runner_crop_part_var.get())
 
     def select_runner_target(self, update_status=True):
         source = self.source_for_runner_part()
@@ -677,7 +768,7 @@ class CropPanel(tk.Frame):
         display = runner.get("display_name") or twitch or "runner"
         layout = self.race_mode_label()
         for part, var in self.part_status_vars.items():
-            preset = app_state.get_crop_preset(twitch, part, layout) if twitch else None
+            preset = app_state.get_crop_preset(twitch, self.preset_part_name(part), layout) if twitch else None
             if preset:
                 var.set(f"saved for {display} ({layout})")
             else:
@@ -734,7 +825,7 @@ class CropPanel(tk.Frame):
         layout = self.race_mode_label()
         for part in self.crop_parts_for_current_layout():
             source = self.source_for_runner_part(part)
-            preset = app_state.get_crop_preset(twitch, part, layout)
+            preset = app_state.get_crop_preset(twitch, self.preset_part_name(part), layout)
             if not source or not preset:
                 missing.append(part)
                 continue
@@ -777,8 +868,8 @@ class CropPanel(tk.Frame):
                 missing.append(f"R{slot} {display}: missing Twitch name")
                 continue
             for part in self.crop_parts_for_current_layout():
-                source = f"{layout} R{slot} {part}"
-                preset = app_state.get_crop_preset(twitch, part, layout)
+                source = self.source_name_for_slot_part(slot, part)
+                preset = app_state.get_crop_preset(twitch, self.preset_part_name(part), layout)
                 if not preset:
                     missing.append(f"R{slot} {display}: {self.display_part_label(part)}")
                     continue
@@ -811,7 +902,7 @@ class CropPanel(tk.Frame):
         self.apply_to_source(source_name)
 
     def target_details(self, source_name):
-        match = re.match(r"^(?P<mode>[24]P)\s+R(?P<slot>[1-4])\s+(?P<part>Stream|Tracker|Timer|Facecam)$", source_name, re.I)
+        match = re.match(r"^(?P<mode>[24]P)\s+R(?P<slot>[1-4])\s+(?:Media\s+)?(?P<part>Stream|Tracker|Timer|Facecam)$", source_name, re.I)
         if not match:
             return None
         return {
@@ -844,7 +935,9 @@ class CropPanel(tk.Frame):
         twitch = (runner.get("twitch_name") or "").strip()
         if not twitch:
             return source_name, details, runner, None
-        return source_name, details, runner, app_state.get_crop_preset(twitch, details["part"], details["mode"])
+        return source_name, details, runner, app_state.get_crop_preset(
+            twitch, self.preset_part_name(details["part"]), details["mode"]
+        )
 
     def refresh_memory_status(self):
         if not hasattr(self, "memory_status_var"):
@@ -898,7 +991,13 @@ class CropPanel(tk.Frame):
             if show_warnings:
                 messagebox.showwarning("No Twitch name", "The current runner state is missing a Twitch name.")
             return False
-        app_state.save_crop_preset(twitch, runner.get("display_name", twitch), details["part"], self.crop, details["mode"])
+        app_state.save_crop_preset(
+            twitch,
+            runner.get("display_name", twitch),
+            self.preset_part_name(details["part"]),
+            self.crop,
+            details["mode"],
+        )
         self.refresh_memory_status()
         self.update_part_statuses()
         self.set_status(f"Saved crop for {source_name}", ok=True)

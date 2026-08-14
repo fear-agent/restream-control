@@ -4,11 +4,14 @@ Use this guide when setting up Restream Control on a new Windows machine.
 
 ## 1. Install Required Programs
 
-Install these first:
+Install OBS Studio first: https://obsproject.com/download
 
-- OBS Studio: https://obsproject.com/download
-- VLC: https://images.videolan.org/vlc/download-windows.html
-- Streamlink: https://streamlink.github.io/install.html
+After opening Restream Control, use `Setup Wizard` to install or check the remaining tools for the playback method you choose:
+
+- `VLC Windows`: VLC and Streamlink.
+- `OBS Media Feeds`: FFmpeg and Streamlink.
+
+The wizard uses Windows Package Manager when it is available. Otherwise, `Open Required Downloads` opens the official download pages for the missing tools.
 
 Restream Control supports OBS Studio. Streamlabs Desktop is not supported.
 
@@ -36,7 +39,8 @@ In Restream Control, open `Setup Wizard`.
 
 Use it to:
 
-- Check VLC, Streamlink, and OBS connection.
+- Install/check the tools needed for the selected playback method.
+- Check the OBS connection.
 - Open OBS websocket settings.
 - Choose template setup or custom layout.
 - Start audio mapping.
@@ -72,13 +76,17 @@ Port: 4455
 
 Use one of these:
 
-- `Template Setup`: creates the included default Restream Control scenes and sources.
+- `Template Setup`: creates the included default scenes and sources for the playback method selected on Setup.
 - `Custom Layout`: lets you draw your own layout and apply it to OBS.
 - OBS import: import `obs-template\Restream_Control_Template.json` manually in OBS.
 
 Most new users should start with `Template Setup`.
 
+For `OBS Media Feeds`, open `Direct OBS` once afterward and click `Create 2P/4P OBS Layouts`. The created Game source carries each runner's audio; Tracker, Timer, and Facecam sources are video-only.
+
 ## 6. Audio
+
+This section applies to `VLC Windows` playback. `OBS Media Feeds` includes runner audio in each Game source, so it does not need VLC audio mapping.
 
 Open `Audio` after runner VLC windows are launched.
 
@@ -109,13 +117,13 @@ Optional: in `Settings`, choose `VLC Audio Output` to have Restream Control laun
 6. Open `Cropping`.
 7. Take screenshots and apply crops.
 8. Open `Sync` if stream timing needs adjustment.
-9. Open `Checklist` before going live.
+9. Confirm the OBS scene, audio levels, and saved crops before going live.
 
 ## 8. Troubleshooting
 
 First, open `Setup Wizard` and click `Refresh Checks`.
 
-If streams do not launch, check that Streamlink and VLC are installed.
+If streams do not launch, open `Setup Wizard`, confirm the selected playback method, and install/check its required tools.
 
 If OBS actions fail, check that:
 

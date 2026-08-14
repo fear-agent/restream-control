@@ -85,6 +85,13 @@ def designer_crop_targets() -> list[tuple[str, str, str, str]]:
 
 def all_crop_targets() -> list[tuple[str, str, str, str]]:
     targets = list(BASE_TARGETS)
+    # The experimental no-VLC path uses independent OBS Media Sources. They
+    # need to be discoverable by the same crop service as the VLC sources.
+    for source, layout, slot, part in BASE_TARGETS:
+        targets.append((f"{layout} {slot} Media {part}", layout, slot, part))
+    for layout, slots in (("2P", range(1, 3)), ("4P", range(1, 5))):
+        for slot in slots:
+            targets.append((f"{layout} R{slot} Media Facecam", layout, f"R{slot}", "Facecam"))
     existing = {target[0] for target in targets}
     for target in designer_crop_targets():
         if target[0] not in existing:

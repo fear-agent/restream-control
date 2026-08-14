@@ -11,7 +11,9 @@ Relaunch closes/reopens a runner from race_setup_last.txt so the stream returns 
 from __future__ import annotations
 
 import ctypes
+import base64
 from ctypes import wintypes
+from io import BytesIO
 import os
 import re
 import subprocess
@@ -25,6 +27,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 
 import app_state
+import media_feed_service
+import obs_crop_service
 
 try:
     from PIL import Image, ImageDraw, ImageGrab, ImageTk
@@ -278,10 +282,13 @@ class SyncPanel(tk.Frame):
         self.timer_preview_zoom = 1.0
         self.timer_preview_offset = [0, 0]
         self.timer_preview_drag_start = None
+        self.sync_mode_var = tk.StringVar(value=str(app_state.load_config().get("playback_engine", "VLC Windows")))
+        self.sync_source_var = tk.StringVar()
+        self.sync_instruction_var = tk.StringVar()
 
         self._setup_style()
         self._build_ui()
-        self.refresh_all()
+        self.set_playback_engine(self.sync_mode_var.get())
 
     def _setup_style(self) -> None:
         self.style = ttk.Style(self.root)
@@ -303,8 +310,11 @@ class SyncPanel(tk.Frame):
 
         top = ttk.Frame(outer)
         top.pack(fill="x", pady=(0, 12))
+        ttk.Label(top, text="Playback:").pack(side="left", padx=(0, 6))
+        ttk.Label(top, textvariable=self.sync_source_var).pack(side="left")
         ttk.Button(top, text="Refresh Status", command=self.refresh_all).pack(side="right", padx=(8, 0))
         ttk.Button(top, text="Clear Seconds", command=self.clear_seconds).pack(side="right", padx=(8, 0))
+        ttk.Button(top, text="Return All To Live", command=self.return_all_media_to_live).pack(side="right", padx=(8, 0))
         ttk.Button(top, text="Apply All Delays", command=self.delay_all_entered).pack(side="right", padx=(8, 0))
         ttk.Button(top, text="Clear Timer Images", command=self.clear_timer_screenshots).pack(side="right", padx=(8, 0))
 
@@ -331,7 +341,7 @@ class SyncPanel(tk.Frame):
         ttk.Label(preview_actions, textvariable=self.timer_preview_status_var).pack(side="left", padx=(8, 0))
         ttk.Label(
             preview_frame,
-            text="Take a screenshot, compare the timer values, then use the calculator below. Mouse wheel zooms; drag to pan.",
+            textvariable=self.sync_instruction_var,
             foreground=MUTED,
         ).pack(fill="x", pady=(0, 6))
         self.timer_preview_canvas = tk.Canvas(
@@ -411,6 +421,30 @@ class SyncPanel(tk.Frame):
         self.log = tk.Text(log_frame, height=8, wrap="word", state="disabled")
         self.log.configure(bg=INPUT_BG, fg=TEXT, insertbackground=TEXT, relief="flat")
         self.log.pack(fill="both", expand=True, padx=6, pady=6)
+        self.update_sync_mode_ui()
+
+    def is_media_feed_mode(self) -> bool:
+        return self.sync_mode_var.get() == "OBS Media Feeds"
+
+    def set_playback_engine(self, engine: str) -> None:
+        self.sync_mode_var.set("OBS Media Feeds" if str(engine) == "OBS Media Feeds" else "VLC Windows")
+        self.sync_source_var.set("Direct to OBS" if self.is_media_feed_mode() else "Standard VLC")
+        self.update_sync_mode_ui()
+        self.refresh_all()
+
+    def update_sync_mode_ui(self) -> None:
+        if self.is_media_feed_mode():
+            self.sync_instruction_var.set(
+                "Capture OBS Timer sources, compare the timer values, then use the calculator. Applying a delay restarts that local feed with a real FFmpeg buffer. Mouse wheel zooms; drag to pan."
+            )
+        else:
+            self.sync_instruction_var.set(
+                "Take a screenshot, compare the timer values, then use the calculator below. Mouse wheel zooms; drag to pan."
+            )
+
+    def on_sync_mode_changed(self, _event=None) -> None:
+        self.update_sync_mode_ui()
+        self.refresh_all()
 
     def log_message(self, message: str) -> None:
         timestamp = time.strftime("%H:%M:%S")
@@ -438,6 +472,14 @@ class SyncPanel(tk.Frame):
         return ImageGrab.grab(bbox=(left, top, right, bottom)).convert("RGB")
 
     def create_timer_sync_screenshot(self) -> None:
+        if self.is_media_feed_mode():
+            states = media_feed_service.all_states()
+            if not any(state.get("status") == "running" for state in states.values()):
+                messagebox.showwarning("Timer screenshot", "No running OBS Media Feeds were found.")
+                return
+            self.log_message("Creating OBS media timer screenshot...")
+            threading.Thread(target=self.media_timer_sync_screenshot_worker, daemon=True).start()
+            return
         self.refresh_windows(log=False)
         if not self.windows:
             messagebox.showwarning("Timer screenshot", "No RUNNER VLC windows were found.")
@@ -454,6 +496,15 @@ class SyncPanel(tk.Frame):
             return
         self.root.after(0, self.display_timer_screenshot, path)
 
+    def media_timer_sync_screenshot_worker(self) -> None:
+        try:
+            path = self.build_media_timer_sync_screenshot()
+        except Exception as exc:
+            self.root.after(0, self.log_message, f"ERROR creating OBS media timer screenshot: {exc}")
+            self.root.after(0, messagebox.showerror, "Timer screenshot failed", str(exc))
+            return
+        self.root.after(0, self.display_timer_screenshot, path)
+
     def display_timer_screenshot(self, path: Path) -> None:
         self.last_timer_image_path = path
         self.log_message(f"Timer screenshot saved: {path}")
@@ -464,6 +515,8 @@ class SyncPanel(tk.Frame):
         self.refocus_tool()
 
     def last_timer_preview_slots(self) -> list[int]:
+        if self.is_media_feed_mode():
+            return [slot for slot, state in media_feed_service.all_states().items() if state.get("status") == "running"]
         return sorted(self.windows) or [1, 2, 3, 4]
 
     def refocus_tool(self) -> None:
@@ -627,6 +680,44 @@ class SyncPanel(tk.Frame):
         canvas.save(path)
         return path
 
+    def build_media_timer_sync_screenshot(self) -> Path:
+        if Image is None or ImageDraw is None:
+            raise RuntimeError("Pillow is not available. Install Pillow from requirements.txt.")
+        race = app_state.load_current_race()
+        mode = app_state.normalize_layout(race.get("mode", 4))
+        states = media_feed_service.all_states()
+        captures = {}
+        client = obs_crop_service.connect()
+        for slot, state in states.items():
+            if state.get("status") != "running":
+                continue
+            response = client.get_source_screenshot(f"{mode} R{slot} Media Timer", "png", 1280, 720, 90)
+            image_data = getattr(response, "image_data", "")
+            if image_data:
+                encoded = image_data.split(",", 1)[1] if "," in image_data else image_data
+                captures[slot] = Image.open(BytesIO(base64.b64decode(encoded))).convert("RGB")
+        if not captures:
+            raise RuntimeError("OBS did not return any running Media Timer source screenshots.")
+        cell_width = max(image.width for image in captures.values())
+        cell_height = max(image.height for image in captures.values())
+        label_height, gap = 28, 8
+        canvas = Image.new("RGB", (cell_width * 2 + gap, (cell_height + label_height) * 2 + gap), (12, 14, 16))
+        draw = ImageDraw.Draw(canvas)
+        positions = {1: (0, 0), 2: (0, cell_height + label_height + gap), 3: (cell_width + gap, 0), 4: (cell_width + gap, cell_height + label_height + gap)}
+        for slot, (x, y) in positions.items():
+            draw.rectangle((x, y, x + cell_width, y + label_height), fill=(16, 17, 19))
+            draw.text((x + 8, y + 7), f"RUNNER {slot}", fill=(249, 250, 251))
+            image = captures.get(slot)
+            if image:
+                canvas.paste(image, (x, y + label_height))
+            else:
+                draw.rectangle((x, y + label_height, x + cell_width, y + label_height + cell_height), outline=(63, 69, 75), width=2)
+                draw.text((x + 8, y + label_height + 8), "Not captured", fill=(156, 163, 175))
+        SYNC_SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+        path = SYNC_SCREENSHOT_DIR / f"media_timer_sync_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        canvas.save(path)
+        return path
+
     def clear_timer_screenshots(self) -> None:
         SYNC_SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
         files = [p for p in SYNC_SCREENSHOT_DIR.iterdir() if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".webp"}]
@@ -665,6 +756,23 @@ class SyncPanel(tk.Frame):
             self.log_message(f"Reloaded race info. Found {len(self.runner_info)} runner(s).")
 
     def refresh_windows(self, log: bool = True) -> None:
+        if self.is_media_feed_mode():
+            states = media_feed_service.all_states()
+            running = 0
+            for slot in range(1, 5):
+                state_info = states.get(slot, {})
+                state = str(state_info.get("status") or "stopped")
+                if state == "running":
+                    running += 1
+                self.status_vars[slot].set(str(state_info.get("message") or "Not running"))
+                enabled = state == "running" and slot not in self.busy_slots
+                self.delay_buttons[slot].configure(state="normal" if enabled else "disabled")
+                self.toggle_buttons[slot].configure(text="Not used", state="disabled")
+                self.reload_buttons[slot].configure(text="Return Live", state="normal" if state_info.get("twitch_name") else "disabled")
+            self.summary_var.set(f"Detected {running} running local OBS media feed(s). Applying a delay restarts that feed with a buffer.")
+            if log:
+                self.log_message(f"Refreshed OBS Media Feeds. Found {running} running feed(s).")
+            return
         self.windows = list_runner_windows()
         for slot in range(1, 5):
             if slot in self.windows:
@@ -672,6 +780,8 @@ class SyncPanel(tk.Frame):
                 state = "normal" if slot not in self.busy_slots else "disabled"
                 self.delay_buttons[slot].configure(state=state)
                 self.toggle_buttons[slot].configure(state=state)
+                self.toggle_buttons[slot].configure(text="Pause")
+                self.reload_buttons[slot].configure(text="Relaunch")
             else:
                 self.status_vars[slot].set("Not found")
                 self.delay_buttons[slot].configure(state="disabled")
@@ -770,12 +880,17 @@ class SyncPanel(tk.Frame):
             self.reload_buttons[slot].configure(state="disabled")
         else:
             self.busy_slots.discard(slot)
-            if slot in self.windows:
+            if self.is_media_feed_mode():
+                self.refresh_windows(log=False)
+                return
+            elif slot in self.windows:
                 self.delay_buttons[slot].configure(state="normal")
                 self.toggle_buttons[slot].configure(state="normal")
             self.reload_buttons[slot].configure(state="normal")
 
     def toggle_one(self, slot: int) -> None:
+        if self.is_media_feed_mode():
+            return
         window = self.windows.get(slot)
         if not window:
             messagebox.showwarning("Window not found", f"RUNNER {slot} VLC window was not found. Click Refresh.")
@@ -791,6 +906,13 @@ class SyncPanel(tk.Frame):
         seconds = self._get_seconds(slot)
         if seconds is None:
             return
+        if self.is_media_feed_mode():
+            state = media_feed_service.load_state(slot)
+            if state.get("status") != "running":
+                messagebox.showwarning("Feed not running", f"R{slot} does not have a running OBS Media Feed. Start it from Media Feeds first.")
+                return
+            self._start_media_delay_thread(slot, seconds)
+            return
         window = self.windows.get(slot)
         if not window:
             messagebox.showwarning("Window not found", f"RUNNER {slot} VLC window was not found. Click Refresh.")
@@ -798,6 +920,9 @@ class SyncPanel(tk.Frame):
         self._start_delay_thread(slot, window, seconds)
 
     def delay_all_entered(self) -> None:
+        if self.is_media_feed_mode():
+            self.delay_all_media_entered()
+            return
         jobs: List[tuple[int, RunnerWindow, float]] = []
         for slot in range(1, 5):
             raw = self.seconds_vars[slot].get().strip()
@@ -874,7 +999,115 @@ class SyncPanel(tk.Frame):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _start_media_delay_thread(self, slot: int, seconds: float) -> None:
+        self._set_slot_busy(slot, True)
+        self.log_message(f"Restarting R{slot} with a {seconds:g}s FFmpeg buffer.")
+
+        def worker() -> None:
+            try:
+                media_feed_service.restart_slot_with_delay(slot, seconds)
+                self.root.after(0, self.log_message, f"R{slot} restarted with a {seconds:g}s media-feed delay.")
+            except Exception as exc:
+                self.root.after(0, self.log_message, f"ERROR delaying R{slot}: {exc}")
+                self.root.after(0, messagebox.showerror, "Media feed delay failed", str(exc))
+            finally:
+                self.root.after(700, self._set_slot_busy, slot, False)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def delay_all_media_entered(self) -> None:
+        jobs: list[tuple[int, float]] = []
+        for slot in range(1, 5):
+            raw = self.seconds_vars[slot].get().strip()
+            if not raw:
+                continue
+            try:
+                seconds = float(raw)
+            except ValueError:
+                messagebox.showwarning("Invalid seconds", f"'{raw}' is not valid for RUNNER {slot}.")
+                return
+            if seconds <= 0:
+                messagebox.showwarning("Invalid seconds", f"RUNNER {slot} seconds must be greater than 0.")
+                return
+            if media_feed_service.load_state(slot).get("status") != "running":
+                messagebox.showwarning("Feed not running", f"R{slot} does not have a running OBS Media Feed.")
+                return
+            jobs.append((slot, seconds))
+        if not jobs:
+            messagebox.showinfo("No delays", "Enter seconds for one or more runners first.")
+            return
+        self.log_message("Restarting media feeds with delays: " + ", ".join(f"R{slot}={seconds:g}s" for slot, seconds in jobs))
+        for slot, _seconds in jobs:
+            self._set_slot_busy(slot, True)
+
+        def worker() -> None:
+            try:
+                for slot, seconds in jobs:
+                    media_feed_service.restart_slot_with_delay(slot, seconds)
+                    time.sleep(0.15)
+                self.root.after(0, self.log_message, "Media-feed delay restarts requested.")
+            except Exception as exc:
+                self.root.after(0, self.log_message, f"ERROR applying media delays: {exc}")
+                self.root.after(0, messagebox.showerror, "Media feed delays failed", str(exc))
+            finally:
+                for slot, _seconds in jobs:
+                    self.root.after(700, self._set_slot_busy, slot, False)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def return_all_media_to_live(self) -> None:
+        if not self.is_media_feed_mode():
+            messagebox.showinfo("Return all to live", "Select OBS Media Feeds as the Sync source to return local feeds to live playback.")
+            return
+        jobs = [
+            slot
+            for slot in range(1, 5)
+            if media_feed_service.load_state(slot).get("status") == "running"
+            and float(media_feed_service.load_state(slot).get("delay_seconds") or 0) > 0
+        ]
+        if not jobs:
+            messagebox.showinfo("Return all to live", "No delayed OBS Media Feeds are running.")
+            return
+        self.log_message("Returning delayed OBS Media Feeds to live playback: " + ", ".join(f"R{slot}" for slot in jobs))
+        for slot in jobs:
+            self._set_slot_busy(slot, True)
+
+        def worker() -> None:
+            try:
+                for slot in jobs:
+                    media_feed_service.restart_slot_with_delay(slot, 0)
+                    time.sleep(0.15)
+                self.root.after(0, self.log_message, "All delayed OBS Media Feeds were restarted at live playback.")
+            except Exception as exc:
+                self.root.after(0, self.log_message, f"ERROR returning all media feeds to live: {exc}")
+                self.root.after(0, messagebox.showerror, "Return all to live failed", str(exc))
+            finally:
+                for slot in jobs:
+                    self.root.after(700, self._set_slot_busy, slot, False)
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def reload_live(self, slot: int) -> None:
+        if self.is_media_feed_mode():
+            state = media_feed_service.load_state(slot)
+            if not state.get("twitch_name"):
+                messagebox.showwarning("Feed not found", f"R{slot} has no saved OBS Media Feed to return to live.")
+                return
+            self._set_slot_busy(slot, True)
+            self.log_message(f"Returning R{slot} OBS Media Feed to live playback.")
+
+            def worker() -> None:
+                try:
+                    media_feed_service.restart_slot_with_delay(slot, 0)
+                    self.root.after(0, self.log_message, f"R{slot} restarted without a delay.")
+                except Exception as exc:
+                    self.root.after(0, self.log_message, f"ERROR returning R{slot} to live: {exc}")
+                    self.root.after(0, messagebox.showerror, "Return to live failed", str(exc))
+                finally:
+                    self.root.after(700, self._set_slot_busy, slot, False)
+
+            threading.Thread(target=worker, daemon=True).start()
+            return
         info = self.runner_info.get(slot)
         twitch = info.twitch_name if info else ""
         if not twitch:

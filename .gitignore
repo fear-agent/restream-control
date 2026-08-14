@@ -27,5 +27,8 @@ app/state/
 *.lnk
 restream-control-settings*.json
 
+# Local FFmpeg/Streamlink experiments
+experiments/
+
 # Local duplicate of the canonical tracked runner list
 app/runners.csv

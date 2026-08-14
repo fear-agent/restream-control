@@ -6,6 +6,7 @@ Main control surface for setup, embedded sync, cropping launcher, and event tool
 from __future__ import annotations
 
 import importlib.util
+import base64
 import copy
 import json
 import os
@@ -17,6 +18,8 @@ import threading
 import time
 import traceback
 import tkinter as tk
+import webbrowser
+from io import BytesIO
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Optional
@@ -25,6 +28,7 @@ from PIL import Image, ImageTk
 
 import app_state
 import cropping_tool
+import media_feed_service
 import obs_crop_service
 import stream_syncer
 
@@ -87,6 +91,17 @@ LAYOUT_REGION_COLORS = {
 }
 LAYOUT_REGION_TYPES = ["Game", "Tracker", "Timer", "Facecam", "Runner Name", "Comms", "Text", "Image"]
 MAX_EXTRA_TEXT_REGIONS = 3
+PLAYBACK_STANDARD = "Standard: VLC Windows"
+PLAYBACK_DIRECT = "Direct to OBS: Media Feeds"
+
+
+def playback_engine_key(value: str) -> str:
+    """Normalize display labels and old saved values to the engine identifier."""
+    return "OBS Media Feeds" if "Media" in str(value) or "Direct" in str(value) else "VLC Windows"
+
+
+def playback_display_name(value: str) -> str:
+    return "Direct to OBS" if playback_engine_key(value) == "OBS Media Feeds" else "Standard VLC"
 
 
 def bundled_or_exists(path: Path) -> bool:
@@ -434,8 +449,13 @@ class RestreamApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("1480x900")
-        self.minsize(1280, 760)
+        self.geometry("1680x960")
+        self.minsize(1400, 820)
+        # Crop and sync both work with full-size 16:9 screenshots. Starting
+        # maximized keeps the canvas and its controls usable without a manual
+        # resize on ordinary desktop displays.
+        if os.name == "nt":
+            self.after_idle(lambda: self.state("zoomed"))
         self.configure(bg=BG)
 
         self.launch_mod = load_launch_module()
@@ -455,8 +475,17 @@ class RestreamApp(tk.Tk):
         self.dashboard_layout_var = tk.StringVar(value="Layout: -")
         self.dashboard_runners_var = tk.StringVar(value="Runners: -")
         self.dashboard_obs_var = tk.StringVar(value="OBS: not checked")
+        self.dashboard_playback_var = tk.StringVar(value="Playback: Standard VLC")
         self.mode_var = tk.StringVar(value="2")
+        self.playback_engine_var = tk.StringVar(
+            value=(
+                PLAYBACK_DIRECT
+                if playback_engine_key(str(app_state.load_config().get("playback_engine", "VLC Windows"))) == "OBS Media Feeds"
+                else PLAYBACK_STANDARD
+            )
+        )
         self.comms_var = tk.StringVar()
+        self.playback_help_var = tk.StringVar()
         self.replace_slot_var = tk.StringVar(value="1")
         obs_config = app_state.load_config().get("obs_websocket", {})
         self.obs_host_var = tk.StringVar(value=str(obs_config.get("host", "localhost")))
@@ -472,18 +501,27 @@ class RestreamApp(tk.Tk):
         self.edit_aliases_var = tk.StringVar()
         self.source_map_text: Optional[tk.Text] = None
         self.audio_status_var = tk.StringVar(value="Click Refresh Audio to read OBS audio inputs.")
+        self.audio_playback_note_var = tk.StringVar()
+        self.audio_mapper_note_var = tk.StringVar()
         self.audio_rows_frame: Optional[tk.Frame] = None
         self.audio_rows: dict[str, dict[str, Any]] = {}
         self.audio_mapper_layout_var = tk.StringVar(value="Current")
         self.audio_mapper_status_var = tk.StringVar(value="Load OBS audio sources to map runner windows.")
         self.audio_mapper_frame: Optional[tk.Frame] = None
         self.audio_mapper_rows: dict[str, dict[str, Any]] = {}
+        self.media_feed_status_var = tk.StringVar(value="Select runners on Setup, then start local OBS media feeds here.")
+        self.media_feed_rows_frame: Optional[tk.Frame] = None
+        self.media_feed_rows: dict[int, dict[str, Any]] = {}
+        self.media_feed_refresh_after: Optional[str] = None
         self.builder_layout_var = tk.StringVar(value="Both")
         self.builder_status_var = tk.StringVar(value="Scan OBS before creating missing default template sources.")
         self.builder_text: Optional[tk.Text] = None
         self.wizard_status_var = tk.StringVar(value="Start here on a new machine, or use this later to re-check setup.")
         self.wizard_checks_frame: Optional[tk.Frame] = None
+        self.wizard_runtime_var = tk.StringVar()
         self.layout_mode_var = tk.StringVar(value="4P")
+        self.layout_target_var = tk.StringVar(value=playback_engine_key(self.playback_engine_var.get()))
+        self.layout_playback_var = tk.StringVar(value=playback_display_name(self.playback_engine_var.get()))
         self.layout_slot_var = tk.StringVar(value="R1")
         self.layout_region_type_var = tk.StringVar(value="Game")
         self.layout_copy_from_var = tk.StringVar(value="R1")
@@ -598,8 +636,9 @@ class RestreamApp(tk.Tk):
 
         nav_labels = {
             "Custom OBS Layout": "Custom Layout",
+            "Media Feeds": "Direct OBS",
         }
-        for name in ["Setup", "Cropping", "Sync", "Audio", "Custom OBS Layout", "Template Setup", "Checklist", "Setup Wizard", "Settings"]:
+        for name in ["Setup", "Media Feeds", "Cropping", "Sync", "Audio", "Custom OBS Layout", "Template Setup", "Setup Wizard", "Settings"]:
             btn = tk.Button(
                 sidebar,
                 text=nav_labels.get(name, name),
@@ -637,6 +676,7 @@ class RestreamApp(tk.Tk):
             self.dashboard_layout_var,
             self.dashboard_runners_var,
             self.dashboard_obs_var,
+            self.dashboard_playback_var,
         ]:
             tk.Label(
                 dashboard,
@@ -653,24 +693,25 @@ class RestreamApp(tk.Tk):
         self.page_container = tk.Frame(content, bg=BG)
         self.page_container.pack(fill="both", expand=True, padx=16, pady=(0, 14))
 
-        for name in ["Setup", "Cropping", "Sync", "Audio", "Custom OBS Layout", "Template Setup", "Checklist", "Setup Wizard", "Settings"]:
+        for name in ["Setup", "Media Feeds", "Cropping", "Sync", "Audio", "Custom OBS Layout", "Template Setup", "Setup Wizard", "Settings"]:
             page = tk.Frame(self.page_container, bg=BG) if name in {"Cropping", "Sync", "Custom OBS Layout"} else ScrollablePage(self.page_container)
             self.pages[name] = page
             self.page_bodies[name] = page if name in {"Cropping", "Sync", "Custom OBS Layout"} else page.inner
 
         self._build_setup(self.page_bodies["Setup"])
+        self._build_media_feeds(self.page_bodies["Media Feeds"])
         self._build_wizard(self.page_bodies["Setup Wizard"])
         self._build_audio_panel(self.page_bodies["Audio"])
         self._build_layout_designer(self.page_bodies["Custom OBS Layout"])
         self._build_obs_builder(self.page_bodies["Template Setup"])
-        self._build_checklist(self.page_bodies["Checklist"])
         self._build_settings(self.page_bodies["Settings"])
+        self.update_audio_playback_ui()
 
     def show_page(self, name: str) -> None:
         for page in self.pages.values():
             page.pack_forget()
         self.pages[name].pack(fill="both", expand=True)
-        self.page_title.config(text=name)
+        self.page_title.config(text="Direct OBS" if name == "Media Feeds" else name)
         self.current_page = name
         for key, btn in self.nav_buttons.items():
             if key == name:
@@ -678,13 +719,17 @@ class RestreamApp(tk.Tk):
             else:
                 btn.config(bg=PANEL_2, fg=TEXT, font=("Segoe UI", 11), relief="flat")
         if name == "Sync" and self.sync_panel is not None:
+            self.sync_panel.set_playback_engine(playback_engine_key(self.playback_engine_var.get()))
             self.sync_panel.refresh_all()
         elif name == "Sync" and self.sync_panel is None:
             self._build_sync(self.page_bodies["Sync"])
         if name == "Cropping" and self.crop_panel is not None:
+            self.crop_panel.set_playback_engine(playback_engine_key(self.playback_engine_var.get()))
             self.crop_panel.refresh_current_race()
         elif name == "Cropping" and self.crop_panel is None:
             self._build_cropping(self.page_bodies["Cropping"])
+        elif name == "Media Feeds":
+            self.refresh_media_feeds()
 
     def panel(self, parent: tk.Frame, title: str) -> tk.Frame:
         frame = tk.Frame(parent, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
@@ -740,8 +785,27 @@ class RestreamApp(tk.Tk):
                 pady=7,
             )
             rb.pack(side="left", padx=(0, 8))
+        tk.Label(top, text="Playback", bg=PANEL, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(14, 8))
+        playback = ttk.Combobox(
+            top,
+            textvariable=self.playback_engine_var,
+            values=[PLAYBACK_STANDARD, PLAYBACK_DIRECT],
+            state="readonly",
+            width=27,
+        )
+        playback.pack(side="left", padx=(0, 8), ipady=4)
+        playback.bind("<<ComboboxSelected>>", self.on_playback_engine_changed)
         self.button(top, "Load Last Race", self.load_saved_race_into_fields, compact=True).pack(side="right", padx=(8, 0))
         self.button(top, "Reload Runner List", self.load_runners_into_setup, compact=True).pack(side="right")
+
+        tk.Label(
+            p,
+            textvariable=self.playback_help_var,
+            bg=PANEL,
+            fg=MUTED,
+            anchor="w",
+            font=("Segoe UI", 9),
+        ).pack(fill="x", padx=16, pady=(0, 8))
 
         header = tk.Frame(p, bg=PANEL)
         header.pack(fill="x", padx=16, pady=(0, 2))
@@ -765,7 +829,8 @@ class RestreamApp(tk.Tk):
 
         actions = tk.Frame(p, bg=PANEL)
         actions.pack(fill="x", padx=16, pady=(6, 12))
-        self.button(actions, "Launch Streams", self.launch_from_gui, primary=True).pack(side="left", padx=(0, 8))
+        self.launch_button = self.button(actions, "Launch Streams", self.launch_from_gui, primary=True)
+        self.launch_button.pack(side="left", padx=(0, 8))
         self.button(actions, "Update OBS Text", self.write_names_only).pack(side="left", padx=8)
         self.button(actions, "Clear Fields", self.clear_runner_fields).pack(side="left", padx=8)
         replace = tk.Frame(actions, bg=PANEL)
@@ -778,6 +843,474 @@ class RestreamApp(tk.Tk):
         self.button(replace, "Replace Runner", self.replace_from_gui, primary=True, compact=True).pack(side="left")
 
         self.update_mode()
+        self.update_playback_launch_button()
+
+    def on_playback_engine_changed(self, _event: Any = None) -> None:
+        engine = playback_engine_key(self.playback_engine_var.get())
+        app_state.save_config({"playback_engine": engine})
+        self.layout_target_var.set(engine)
+        self.layout_playback_var.set(playback_display_name(engine))
+        if self.crop_panel is not None:
+            self.crop_panel.set_playback_engine(engine)
+        if self.sync_panel is not None:
+            self.sync_panel.set_playback_engine(engine)
+        self.update_audio_playback_ui()
+        self.update_playback_launch_button()
+        self.refresh_runtime_requirements()
+        self.update_dashboard(include_obs=False)
+
+    def update_playback_launch_button(self) -> None:
+        button = getattr(self, "launch_button", None)
+        if button is None:
+            return
+        if playback_engine_key(self.playback_engine_var.get()) == "OBS Media Feeds":
+            button.configure(text="Start Direct OBS Feeds")
+            self.playback_help_var.set("No runner windows. Sends runner video and audio directly to OBS through Streamlink and FFmpeg.")
+        else:
+            button.configure(text="Launch VLC Windows")
+            self.playback_help_var.set("Established workflow. Opens one VLC window per runner for video, audio, cropping, and sync.")
+
+    def _build_media_feeds(self, parent: tk.Frame) -> None:
+        feeds = self.panel(parent, "Direct OBS")
+        tk.Label(
+            feeds,
+            text=(
+                "No VLC windows. Each runner uses Streamlink and FFmpeg to send a local feed directly to OBS. "
+                "Each runner has separate Stream, Tracker, Timer, and custom Facecam feeds so OBS can crop them independently. "
+                "Choose Direct to OBS on Setup before using this workflow."
+            ),
+            bg=PANEL,
+            fg=MUTED,
+            font=("Segoe UI", 10),
+            justify="left",
+            wraplength=1050,
+        ).pack(fill="x", padx=16, pady=(0, 10))
+
+        actions = tk.Frame(feeds, bg=PANEL)
+        actions.pack(fill="x", padx=16, pady=(0, 10))
+        self.button(actions, "Start Selected Race", self.start_media_selected_race, primary=True).pack(side="left", padx=(0, 8))
+        self.button(actions, "Create 2P/4P OBS Layouts", self.create_media_obs_layouts, compact=True).pack(side="left", padx=8)
+        self.button(actions, "Stop All Feeds", self.stop_all_media_feeds, danger=True).pack(side="left", padx=8)
+        self.button(actions, "Refresh", self.refresh_media_feeds).pack(side="left", padx=8)
+        tk.Label(actions, textvariable=self.media_feed_status_var, bg=PANEL, fg=MUTED, font=("Segoe UI", 9), anchor="w").pack(side="left", padx=(12, 0))
+
+        urls = tk.Frame(feeds, bg=PANEL_2)
+        urls.pack(fill="x", padx=16, pady=(0, 10))
+        tk.Label(urls, text="OBS Media Source URLs", bg=PANEL_2, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=12, pady=(8, 4))
+        tk.Label(
+            urls,
+            text="Each cropable part has its own local feed. The automatic layout setup below creates the OBS sources for you.",
+            bg=PANEL_2,
+            fg=MUTED,
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", padx=12, pady=(0, 6))
+        url_row = tk.Frame(urls, bg=PANEL_2)
+        url_row.pack(fill="x", padx=12, pady=(0, 10))
+        for slot in range(1, 5):
+            tk.Label(
+                url_row,
+                text=f"R{slot} Stream: {media_feed_service.source_url(slot, 'Stream')}",
+                bg=INPUT_BG,
+                fg=TEXT,
+                font=("Consolas", 9),
+                padx=10,
+                pady=7,
+            ).pack(side="left", padx=(0, 8))
+
+        self.media_feed_rows_frame = tk.Frame(feeds, bg=PANEL)
+        self.media_feed_rows_frame.pack(fill="x", padx=16, pady=(0, 14))
+        self.refresh_media_feeds()
+
+    def media_runner_for_slot(self, slot: int) -> Any:
+        row = self.runner_rows.get(slot)
+        if not row or not row.enabled_var.get():
+            return None
+        try:
+            return row.to_runner()
+        except ValueError:
+            return None
+
+    def refresh_media_feeds(self) -> None:
+        frame = self.media_feed_rows_frame
+        if frame is None:
+            return
+        if self.media_feed_refresh_after is not None:
+            try:
+                self.after_cancel(self.media_feed_refresh_after)
+            except tk.TclError:
+                pass
+            self.media_feed_refresh_after = None
+        states = media_feed_service.all_states()
+        mode = int(self.mode_var.get())
+        obs_states = self.media_obs_signal_states(mode, states)
+        visible_slots = list(range(1, mode + 1))
+        if set(self.media_feed_rows) != set(visible_slots):
+            for child in frame.winfo_children():
+                child.destroy()
+            self.media_feed_rows = {}
+            for slot in visible_slots:
+                row = tk.Frame(frame, bg=PANEL_2, highlightbackground=BORDER, highlightthickness=1)
+                row.pack(fill="x", pady=4)
+                tk.Label(row, text=f"R{slot}", width=4, bg=INPUT_BG, fg=TEXT, font=("Segoe UI", 10, "bold"), padx=6, pady=8).pack(side="left", padx=(8, 8), pady=8)
+                name = tk.Label(row, width=22, anchor="w", bg=PANEL_2, fg=TEXT, font=("Segoe UI", 10, "bold"))
+                name.pack(side="left", padx=(0, 8))
+                twitch = tk.Label(row, width=27, anchor="w", bg=PANEL_2, fg=MUTED, font=("Segoe UI", 9))
+                twitch.pack(side="left", padx=(0, 8))
+                status = tk.Label(row, width=10, bg=PANEL_2, font=("Segoe UI", 9, "bold"))
+                status.pack(side="left", padx=(0, 8))
+                message = tk.Label(row, anchor="w", bg=PANEL_2, fg=MUTED, font=("Segoe UI", 9))
+                message.pack(side="left", fill="x", expand=True, padx=(0, 8))
+                self.button(row, "Start / Restart", lambda s=slot: self.start_media_slot(s), compact=True).pack(side="right", padx=4, pady=7)
+                self.button(row, "Stop", lambda s=slot: self.stop_media_slot(s), danger=True, compact=True).pack(side="right", padx=4, pady=7)
+                self.media_feed_rows[slot] = {"name": name, "twitch": twitch, "status": status, "message": message}
+        active = False
+        for slot in visible_slots:
+            runner = self.media_runner_for_slot(slot)
+            state = states.get(slot, {})
+            name = runner.display_name if runner else str(state.get("display_name") or "No runner selected")
+            twitch = runner.twitch_name if runner else str(state.get("twitch_name") or "")
+            status = str(state.get("status") or "stopped").title()
+            message = str(state.get("message") or "Not running")
+            obs_message = obs_states.get(slot)
+            if obs_message:
+                message = f"{message} | {obs_message}"
+            color = GOOD if status == "Running" else (WARN if status in {"Starting", "Retrying"} else (DANGER if status == "Failed" else MUTED))
+            active = active or status in {"Starting", "Retrying", "Running"}
+            labels = self.media_feed_rows[slot]
+            labels["name"].configure(text=name)
+            labels["twitch"].configure(text=f"twitch.tv/{twitch}" if twitch else "")
+            labels["status"].configure(text=status, fg=color)
+            labels["message"].configure(text=message)
+        if active and self.current_page == "Media Feeds":
+            self.media_feed_refresh_after = self.after(2000, self.refresh_media_feeds)
+
+    def media_obs_signal_states(self, mode: int, states: dict[int, dict[str, Any]]) -> dict[int, str]:
+        """Check whether each running media source has non-blank OBS video."""
+        running = [slot for slot, state in states.items() if slot <= mode and state.get("status") == "running"]
+        if not running:
+            return {}
+        try:
+            client = obs_crop_service.connect()
+        except Exception:
+            return {slot: "OBS not connected" for slot in running}
+        results: dict[int, str] = {}
+        layout = f"{mode}P"
+        for slot in running:
+            try:
+                response = client.get_source_screenshot(
+                    self.media_source_name(layout, slot, "Stream"),
+                    "png",
+                    64,
+                    36,
+                    70,
+                )
+                image_data = str(getattr(response, "image_data", "") or "")
+                encoded = image_data.split(",", 1)[1] if "," in image_data else image_data
+                image = Image.open(BytesIO(base64.b64decode(encoded))).convert("L")
+                low, high = image.getextrema()
+                results[slot] = "OBS video detected" if high - low > 8 else "OBS source waiting for video"
+            except Exception:
+                results[slot] = "OBS media source not found"
+        return results
+
+    def start_media_selected_race(self) -> None:
+        mod = self.launch_mod
+        if not mod:
+            messagebox.showerror("Media feeds", "launch_crosskeys.py could not be loaded.")
+            return
+        errors = media_feed_service.prereq_errors()
+        if errors:
+            messagebox.showerror("Media feeds blocked", "\n".join(errors))
+            self.media_feed_status_var.set("Media feeds blocked: " + "; ".join(errors))
+            return
+        try:
+            mode = int(self.mode_var.get())
+            selected = self.get_selected_runners()
+            available_slots, stream_errors = self.partition_available_streams(selected, range(1, mode + 1))
+            if not available_slots:
+                messagebox.showerror("Streams unavailable", "\n".join(stream_errors))
+                return
+            self.save_new_runners_to_list(selected)
+            comms = self.get_comms()
+            mod.update_obs_text_files(mode, selected, comms)
+            mod.save_last_setup(mode, selected, comms)
+            app_state.save_current_race(mode, selected, comms)
+            for slot in range(mode + 1, 5):
+                media_feed_service.stop_slot(slot)
+            quality = str(app_state.load_config().get("quality", "best"))
+            for slot in available_slots:
+                runner = selected[slot]
+                media_feed_service.start_slot(slot, runner.display_name, runner.twitch_name, quality)
+            skipped = f" Skipped: {'; '.join(stream_errors)}" if stream_errors else ""
+            self.media_feed_status_var.set(f"Started {len(available_slots)}/{mode} local OBS feed(s).{skipped}")
+            self.log_status(self.media_feed_status_var.get())
+            self.refresh_media_feeds()
+            if stream_errors:
+                messagebox.showwarning("Some streams skipped", "Started available local feeds.\n\nSkipped:\n" + "\n".join(stream_errors))
+        except Exception as exc:
+            messagebox.showerror("Media feeds", str(exc))
+            self.media_feed_status_var.set(f"Could not start media feeds: {exc}")
+
+    def start_media_slot(self, slot: int) -> None:
+        runner = self.media_runner_for_slot(slot)
+        if not runner:
+            messagebox.showerror("Media feeds", f"Select a runner for R{slot} on Setup first.")
+            return
+        errors = media_feed_service.prereq_errors()
+        if errors:
+            messagebox.showerror("Media feeds blocked", "\n".join(errors))
+            return
+        available, stream_errors = self.partition_available_streams({slot: runner}, [slot])
+        if not available:
+            messagebox.showerror("Stream unavailable", "\n".join(stream_errors))
+            return
+        try:
+            quality = str(app_state.load_config().get("quality", "best"))
+            media_feed_service.start_slot(slot, runner.display_name, runner.twitch_name, quality)
+            self.media_feed_status_var.set(f"Starting R{slot}: {runner.display_name}")
+            self.log_status(self.media_feed_status_var.get())
+            self.after(600, self.refresh_media_feeds)
+        except Exception as exc:
+            messagebox.showerror("Media feeds", str(exc))
+
+    def stop_media_slot(self, slot: int) -> None:
+        media_feed_service.stop_slot(slot)
+        self.media_feed_status_var.set(f"Stopped R{slot} local feed.")
+        self.log_status(self.media_feed_status_var.get())
+        self.refresh_media_feeds()
+
+    def stop_all_media_feeds(self) -> None:
+        if not messagebox.askyesno("Stop local feeds", "Stop all Streamlink/FFmpeg local feeds?"):
+            return
+        media_feed_service.stop_all()
+        self.media_feed_status_var.set("Stopped all local OBS feeds.")
+        self.log_status(self.media_feed_status_var.get())
+        self.refresh_media_feeds()
+
+    def media_scene_name(self, layout: str) -> str:
+        return f"{app_state.normalize_layout(layout)} Media Restream"
+
+    def media_source_name(self, layout: str, slot: int, part: str) -> str:
+        return f"{app_state.normalize_layout(layout)} R{slot} Media {part}"
+
+    def is_layout_media_target(self) -> bool:
+        return self.layout_target_var.get() == "OBS Media Feeds"
+
+    def designer_scene_name(self, layout: str, media_target: bool) -> str:
+        return self.media_scene_name(layout) if media_target else f"{app_state.normalize_layout(layout)} Restream"
+
+    def media_part_for_region(self, region: dict[str, Any]) -> tuple[int, str] | None:
+        region_type = str(region.get("type", "") or "")
+        part = {"Game": "Stream", "Tracker": "Tracker", "Timer": "Timer", "Facecam": "Facecam", "Camera": "Facecam"}.get(region_type)
+        match = re.match(r"^R([1-4])$", str(region.get("slot", "") or "").strip().upper())
+        return (int(match.group(1)), part) if part and match else None
+
+    def media_template_item(self, template: dict[str, Any], layout: str, slot: int, part: str) -> dict[str, Any]:
+        try:
+            return self.template_source(template, f"{app_state.normalize_layout(layout)} R{slot} {part}")
+        except KeyError:
+            # Facecam is a custom-layout-only media part. It is positioned by
+            # the designer immediately after creation, so Stream provides a
+            # safe initial transform and input settings shape.
+            return self.template_source(template, f"{app_state.normalize_layout(layout)} R{slot} Stream")
+
+    def create_media_source_item(
+        self,
+        client: Any,
+        scene_name: str,
+        source_name: str,
+        source_names: set[str],
+        scene_items: dict[str, int],
+        input_url: str,
+        muted: bool,
+        template_item: dict[str, Any],
+    ) -> str:
+        item_id = scene_items.get(source_name)
+        created = False
+        if source_name not in source_names:
+            response = client.create_input(
+                scene_name,
+                source_name,
+                "ffmpeg_source",
+                {
+                    "input": input_url,
+                    "is_local_file": False,
+                    # Local UDP feeds must continue through scene changes.
+                    "restart_on_activate": False,
+                },
+                True,
+            )
+            item_id = self.get_scene_item_id_value(response)
+            source_names.add(source_name)
+            scene_items[source_name] = item_id
+            created = True
+        elif item_id is None:
+            response = client.create_scene_item(scene_name, source_name, True)
+            item_id = self.get_scene_item_id_value(response)
+            scene_items[source_name] = item_id
+        else:
+            try:
+                client.set_input_settings(
+                    source_name,
+                    {"input": input_url, "is_local_file": False, "restart_on_activate": False},
+                    True,
+                )
+            except Exception:
+                pass
+        self.apply_template_scene_item(client, scene_name, source_name, int(item_id), template_item)
+        try:
+            client.set_input_mute(source_name, muted)
+        except Exception:
+            pass
+        return "CREATE" if created else "UPDATE"
+
+    def create_media_obs_layouts(
+        self,
+        layouts: list[str] | None = None,
+        from_template_setup: bool = False,
+    ) -> None:
+        layouts = [app_state.normalize_layout(layout) for layout in (layouts or ["2P", "4P"])]
+        layout_names = ", ".join(layouts)
+        message = (
+            f"Create Direct OBS media scenes and default sources for {layout_names}?\n\n"
+            "Creates Direct OBS media scenes without changing your VLC scenes. "
+            "Each runner gets Game, Tracker, and Timer media sources using the default template positions. "
+            "Only each Game source carries audio; Tracker and Timer are video-only."
+        )
+        if not messagebox.askyesno("Create OBS Media Layouts", message):
+            return
+        if not self.save_obs_settings():
+            return
+        try:
+            client = obs_crop_service.connect()
+            template = self.load_obs_template()
+            snapshot = self.scan_obs_snapshot(client)
+            supported_kinds = self.supported_obs_input_kinds(client)
+        except Exception as exc:
+            messagebox.showerror("OBS Media Layouts", str(exc))
+            return
+
+        lines = ["Create Direct OBS Media Layouts", ""]
+        created = 0
+        updated = 0
+        failed: list[str] = []
+        source_names = set(snapshot["all_sources"])
+        scene_names = set(snapshot["scenes"])
+        for layout in layouts:
+            scene_name = self.media_scene_name(layout)
+            slots = range(1, 3) if layout == "2P" else range(1, 5)
+            lines.extend([f"{layout} layout", "-" * 40])
+            if scene_name not in scene_names:
+                try:
+                    client.create_scene(scene_name)
+                    scene_names.add(scene_name)
+                    source_names.add(scene_name)
+                    created += 1
+                    lines.append(f"CREATE  {scene_name}")
+                except Exception as exc:
+                    failed.append(f"{scene_name}: {exc}")
+                    lines.append(f"FAILED  {scene_name}: {exc}")
+                    continue
+            else:
+                lines.append(f"UPDATE  {scene_name}")
+
+            scene_items = self.scene_item_map(client, scene_name)
+            ordered_names: list[str] = []
+            for item in self.template_scene_items(template, f"{layout} Restream"):
+                original_name = str(item.get("name") or "")
+                if not original_name or self.is_builder_container_name(original_name):
+                    continue
+                media_match = re.match(rf"^{layout} R([1-{max(slots)}]) (Stream|Tracker|Timer)$", original_name)
+                if media_match:
+                    slot = int(media_match.group(1))
+                    part = media_match.group(2)
+                    source_name = self.media_source_name(layout, slot, part)
+                    ordered_names.append(source_name)
+                    try:
+                        action = self.create_media_source_item(
+                            client,
+                            scene_name,
+                            source_name,
+                            source_names,
+                            scene_items,
+                            media_feed_service.source_url(slot, part),
+                            muted=part != "Stream",
+                            template_item=item,
+                        )
+                        if action == "CREATE":
+                            created += 1
+                        else:
+                            updated += 1
+                        lines.append(f"{action:<8}{source_name}")
+                    except Exception as exc:
+                        failed.append(f"{source_name}: {exc}")
+                        lines.append(f"FAILED  {source_name}: {exc}")
+                    continue
+
+                ordered_names.append(original_name)
+                try:
+                    result = self.create_or_add_template_item(
+                        client,
+                        scene_name,
+                        original_name,
+                        item,
+                        source_names,
+                        scene_items,
+                        template,
+                        supported_kinds,
+                    )
+                    if result.startswith(("CREATE", "ADD")):
+                        created += 1
+                    else:
+                        updated += 1
+                    lines.append(result)
+                except Exception as exc:
+                    failed.append(f"{original_name}: {exc}")
+                    lines.append(f"FAILED  {original_name}: {exc}")
+            for audio_source in self.builder_audio_sources(layout):
+                if audio_source["name"] not in {"Discord Audio", "Mic Audio"}:
+                    continue
+                try:
+                    result = self.create_or_add_audio_source(
+                        client, scene_name, audio_source, source_names, scene_items, supported_kinds
+                    )
+                    if result.startswith(("CREATE", "ADD")):
+                        created += 1
+                    elif result.startswith("FAILED"):
+                        failed.append(result)
+                    else:
+                        updated += 1
+                    lines.append(result)
+                except Exception as exc:
+                    failed.append(f"{audio_source['name']}: {exc}")
+                    lines.append(f"FAILED  {audio_source['name']}: {exc}")
+            scene_items = self.scene_item_map(client, scene_name)
+            order_failures = self.apply_template_order(client, scene_name, ordered_names, scene_items)
+            if order_failures:
+                failed.extend(order_failures)
+                lines.extend(order_failures)
+            else:
+                lines.append("APPLY   Media layer order")
+            lines.append("")
+
+        lines.extend([
+            "Result",
+            "-" * 40,
+            f"Created: {created}",
+            f"Updated: {updated}",
+            f"Failed: {len(failed)}",
+        ])
+        result_text = "\n".join(lines)
+        self.set_builder_text(result_text)
+        status = f"Direct OBS layouts ready: {created} created, {updated} updated, {len(failed)} failed."
+        self.media_feed_status_var.set(status)
+        if from_template_setup:
+            self.builder_status_var.set(status)
+        self.log_status(status)
+        if failed:
+            messagebox.showwarning("OBS Media Layouts", "Some items could not be created:\n\n" + "\n".join(failed[:10]))
+        else:
+            messagebox.showinfo("OBS Media Layouts", f"Created or updated {layout_names} Direct OBS layout(s). Select the matching Media Restream scene in OBS to test it.")
 
     def _build_wizard(self, parent: tk.Frame) -> None:
         intro = self.panel(parent, "Setup Wizard")
@@ -798,11 +1331,27 @@ class RestreamApp(tk.Tk):
         self.button(top, "Copy Diagnostics", self.copy_diagnostics, compact=True).pack(side="left", padx=8)
         tk.Label(top, textvariable=self.wizard_status_var, bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(12, 0))
 
-        checks = self.panel(parent, "1. Install Check")
+        runtime = self.panel(parent, "1. Playback Requirements")
+        tk.Label(
+            runtime,
+            textvariable=self.wizard_runtime_var,
+            bg=PANEL,
+            fg=MUTED,
+            font=("Segoe UI", 10),
+            anchor="w",
+            justify="left",
+            wraplength=980,
+        ).pack(fill="x", padx=16, pady=(0, 8))
+        runtime_actions = tk.Frame(runtime, bg=PANEL)
+        runtime_actions.pack(fill="x", padx=16, pady=(0, 14))
+        self.button(runtime_actions, "Install Missing Tools", self.install_missing_runtime_tools, primary=True, compact=True).pack(side="left", padx=(0, 8))
+        self.button(runtime_actions, "Open Required Downloads", self.open_missing_runtime_downloads, compact=True).pack(side="left", padx=8)
+
+        checks = self.panel(parent, "2. Install Check")
         self.wizard_checks_frame = tk.Frame(checks, bg=PANEL)
         self.wizard_checks_frame.pack(fill="x", padx=16, pady=(0, 14))
 
-        obs_panel = self.panel(parent, "2. OBS WebSocket")
+        obs_panel = self.panel(parent, "3. OBS WebSocket")
         tk.Label(
             obs_panel,
             text="Enter host, port, and password in Settings, then test the connection.",
@@ -815,7 +1364,7 @@ class RestreamApp(tk.Tk):
         self.button(obs_actions, "Go to Settings", lambda: self.show_page("Settings"), compact=True).pack(side="left", padx=(0, 8))
         self.button(obs_actions, "Test OBS", self.test_obs_connection, primary=True, compact=True).pack(side="left", padx=8)
 
-        layout_panel = self.panel(parent, "3. OBS Layout")
+        layout_panel = self.panel(parent, "4. OBS Layout")
         tk.Label(
             layout_panel,
             text="Choose the fast included template path, or draw your own custom layout.",
@@ -829,7 +1378,7 @@ class RestreamApp(tk.Tk):
         self.button(layout_actions, "Custom OBS Layout", lambda: self.show_page("Custom OBS Layout"), compact=True).pack(side="left", padx=8)
         self.button(layout_actions, "Scan OBS", self.scan_obs_builder, compact=True).pack(side="left", padx=8)
 
-        audio_panel = self.panel(parent, "4. Audio")
+        audio_panel = self.panel(parent, "5. Audio")
         tk.Label(
             audio_panel,
             text="Launch runner VLC windows first, then map runner audio. Do not mute VLC. If you do not want to hear VLC locally, route VLC to an unused output device in Windows Volume Mixer.",
@@ -843,10 +1392,10 @@ class RestreamApp(tk.Tk):
         self.button(audio_actions, "Go to Audio", lambda: self.show_page("Audio"), primary=True, compact=True).pack(side="left", padx=(0, 8))
         self.button(audio_actions, "Open Volume Mixer", open_windows_volume_mixer, compact=True).pack(side="left", padx=8)
 
-        race_panel = self.panel(parent, "5. First Race Test")
+        race_panel = self.panel(parent, "6. First Race Test")
         tk.Label(
             race_panel,
-            text="Pick a 2P or 4P race, launch streams, take screenshots, crop one runner, then use the Checklist before going live.",
+            text="Pick a 2P or 4P race, launch streams, take screenshots, crop one runner, then confirm crops and audio before going live.",
             bg=PANEL,
             fg=MUTED,
             anchor="w",
@@ -858,12 +1407,11 @@ class RestreamApp(tk.Tk):
         self.button(race_actions, "Take Screenshots", self.take_screenshots, compact=True).pack(side="left", padx=8)
         self.button(race_actions, "Go to Cropping", lambda: self.show_page("Cropping"), compact=True).pack(side="left", padx=8)
         self.button(race_actions, "Go to Sync", lambda: self.show_page("Sync"), compact=True).pack(side="left", padx=8)
-        self.button(race_actions, "Open Checklist", lambda: self.show_page("Checklist"), compact=True).pack(side="left", padx=8)
 
-        finish_panel = self.panel(parent, "6. Finish")
+        finish_panel = self.panel(parent, "7. Finish")
         tk.Label(
             finish_panel,
-            text="When checks are clean, create a Start Menu shortcut and use Checklist as your event-day home base.",
+            text="When setup is complete, create a Start Menu shortcut for quick access.",
             bg=PANEL,
             fg=MUTED,
             anchor="w",
@@ -871,7 +1419,6 @@ class RestreamApp(tk.Tk):
         finish_actions = tk.Frame(finish_panel, bg=PANEL)
         finish_actions.pack(fill="x", padx=16, pady=(0, 14))
         self.button(finish_actions, "Create Start Menu Shortcut", self.create_start_menu_shortcut, compact=True).pack(side="left", padx=(0, 8))
-        self.button(finish_actions, "Refresh Checklist", self.wizard_refresh_checklist, compact=True).pack(side="left", padx=8)
 
         self.refresh_wizard_checks(include_obs=False)
 
@@ -884,10 +1431,10 @@ class RestreamApp(tk.Tk):
         self.sync_panel.pack(fill="both", expand=True)
 
     def _build_audio_panel(self, parent: tk.Frame) -> None:
-        help_panel = self.panel(parent, "VLC Listening Setup")
+        help_panel = self.panel(parent, "Playback Audio")
         tk.Label(
             help_panel,
-            text="Leave VLC unmuted so OBS can capture it. To stop hearing runner audio in your speakers/headphones, open Windows Volume Mixer and set VLC media player to an unused output device such as a monitor, unused headset, or virtual cable.",
+            textvariable=self.audio_playback_note_var,
             bg=PANEL,
             fg=MUTED,
             anchor="w",
@@ -922,13 +1469,15 @@ class RestreamApp(tk.Tk):
         tk.Label(mapper_top, text="Layout", bg=PANEL, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 8))
         audio_layout_combo = ttk.Combobox(mapper_top, textvariable=self.audio_mapper_layout_var, values=["Current", "2P", "4P", "Both"], state="readonly", width=10)
         audio_layout_combo.pack(side="left", padx=(0, 8), ipady=5)
-        self.button(mapper_top, "Load Audio Windows", self.load_audio_mapper, primary=True, compact=True).pack(side="left", padx=(0, 8))
-        self.button(mapper_top, "Apply Audio Mapping", self.apply_audio_mapper, compact=True).pack(side="left", padx=8)
+        self.audio_mapper_load_button = self.button(mapper_top, "Load Audio Windows", self.load_audio_mapper, primary=True, compact=True)
+        self.audio_mapper_load_button.pack(side="left", padx=(0, 8))
+        self.audio_mapper_apply_button = self.button(mapper_top, "Apply Audio Mapping", self.apply_audio_mapper, compact=True)
+        self.audio_mapper_apply_button.pack(side="left", padx=8)
         tk.Label(mapper_top, textvariable=self.audio_mapper_status_var, bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(12, 0))
 
         tk.Label(
             mapper,
-            text="Map each runner audio source to the matching VLC window. Created audio sources stay muted until you unmute them.",
+            textvariable=self.audio_mapper_note_var,
             bg=PANEL,
             fg=MUTED,
             font=("Segoe UI", 9),
@@ -943,6 +1492,27 @@ class RestreamApp(tk.Tk):
 
         self.audio_mapper_frame = tk.Frame(mapper, bg=PANEL)
         self.audio_mapper_frame.pack(fill="x", padx=16, pady=(0, 14))
+
+    def update_audio_playback_ui(self) -> None:
+        direct_obs = playback_engine_key(self.playback_engine_var.get()) == "OBS Media Feeds"
+        if direct_obs:
+            self.audio_playback_note_var.set(
+                "Direct OBS sends runner audio through each Media Stream source. Tracker, Timer, and Facecam media sources are muted automatically. Use OBS Audio Mixer to choose what goes live."
+            )
+            self.audio_mapper_note_var.set(
+                "VLC Audio Mapper is not used for Direct OBS. Select Standard VLC on Setup to map VLC window audio."
+            )
+        else:
+            self.audio_playback_note_var.set(
+                "Leave VLC unmuted so OBS can capture it. To stop hearing runner audio in your speakers/headphones, open Windows Volume Mixer and set VLC media player to an unused output device such as a monitor, unused headset, or virtual cable."
+            )
+            self.audio_mapper_note_var.set(
+                "Map each runner audio source to the matching VLC window. Created audio sources stay muted until you unmute them."
+            )
+        state = "disabled" if direct_obs else "normal"
+        for button in [getattr(self, "audio_mapper_load_button", None), getattr(self, "audio_mapper_apply_button", None)]:
+            if button is not None:
+                button.configure(state=state)
 
     def _build_obs_builder(self, parent: tk.Frame) -> None:
         p = self.panel(parent, "Template Setup")
@@ -959,7 +1529,7 @@ class RestreamApp(tk.Tk):
 
         tk.Label(
             p,
-            text="Quick setup for the included Restream Control template. Create Missing Defaults adds only what is missing; Reset intentionally moves template items back to the default layout.",
+            text="Quick setup for the included Restream Control template. It follows the playback method selected on Setup: VLC scenes for VLC Windows or Media Restream scenes for Direct OBS.",
             bg=PANEL,
             fg=MUTED,
             font=("Segoe UI", 9),
@@ -999,7 +1569,9 @@ class RestreamApp(tk.Tk):
         core_tools.pack(side="left")
 
         tk.Label(core_tools, text="Layout", bg=BG, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 8))
-        ttk.Combobox(core_tools, textvariable=self.layout_mode_var, values=["2P", "4P"], state="readonly", width=8).pack(side="left", padx=(0, 10), ipady=5)
+        layout_mode_combo = ttk.Combobox(core_tools, textvariable=self.layout_mode_var, values=["2P", "4P"], state="readonly", width=8)
+        layout_mode_combo.pack(side="left", padx=(0, 10), ipady=5)
+        layout_mode_combo.bind("<<ComboboxSelected>>", self.on_layout_mode_changed)
         tk.Label(core_tools, text="Runner", bg=BG, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(4, 8))
         layout_slot_combo = ttk.Combobox(core_tools, textvariable=self.layout_slot_var, values=["R1", "R2", "R3", "R4"], state="readonly", width=8)
         layout_slot_combo.pack(side="left", padx=(0, 10), ipady=5)
@@ -1012,6 +1584,8 @@ class RestreamApp(tk.Tk):
             state="readonly",
             width=16,
         ).pack(side="left", padx=(0, 12), ipady=5)
+        tk.Label(core_tools, text="Playback", bg=BG, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(4, 8))
+        tk.Label(core_tools, textvariable=self.layout_playback_var, bg=BG, fg=MUTED, font=("Segoe UI", 10)).pack(side="left", padx=(0, 12))
 
         image_tools = tk.Frame(top, bg=BG)
         image_tools.pack(side="right")
@@ -1050,7 +1624,7 @@ class RestreamApp(tk.Tk):
 
         tk.Label(
             parent,
-            text="Draw one box for each runner part, text, or image area. Hold Shift and click boxes to select multiple; use arrow keys to nudge selected boxes. Click empty space to clear selection.",
+            text="Playback follows Setup. Draw one box for each runner part, text, or image area. Facecam is an extra crop of that runner feed in Direct OBS mode. Hold Shift and click boxes to select multiple; use arrow keys to nudge selected boxes. Click empty space to clear selection.",
             bg=BG,
             fg=MUTED,
             font=("Segoe UI", 9),
@@ -1136,6 +1710,9 @@ class RestreamApp(tk.Tk):
     def on_layout_slot_changed(self, _event=None) -> None:
         self.layout_region_type_var.set("Game")
         self.layout_status_var.set(f"Runner {self.layout_slot_var.get()} selected. Region reset to Game.")
+
+    def on_layout_mode_changed(self, _event=None) -> None:
+        self.load_layout_designer(show_status=True, layout=self.layout_mode_var.get())
 
     def layout_region_hit(self, x: float, y: float) -> tuple[Optional[dict[str, Any]], str]:
         for region in reversed(self.layout_regions):
@@ -1804,10 +2381,30 @@ class RestreamApp(tk.Tk):
         self.layout_status_var.set(f"Cleared {len(text_regions)} extra text box(es). Use Remove Unused Sources to remove them from OBS.")
         self.redraw_layout_designer()
 
+    def layout_designer_store(self) -> dict[str, Any]:
+        """Load the per-layout design store and migrate the original single-layout file."""
+        raw = app_state.load_json(LAYOUT_DESIGN_FILE, {})
+        if not isinstance(raw, dict):
+            raw = {}
+        layouts = raw.get("layouts")
+        if isinstance(layouts, dict):
+            return {"version": 2, "layouts": layouts}
+        if raw.get("regions") or raw.get("background"):
+            legacy_layout = app_state.normalize_layout(raw.get("layout", "4P"))
+            return {"version": 2, "layouts": {legacy_layout: raw}}
+        return {"version": 2, "layouts": {}}
+
+    def save_layout_designer_data(self, data: dict[str, Any]) -> None:
+        layout = app_state.normalize_layout(data.get("layout", self.layout_mode_var.get()))
+        store = self.layout_designer_store()
+        layouts = store.setdefault("layouts", {})
+        layouts[layout] = data
+        app_state.save_json(LAYOUT_DESIGN_FILE, store)
+
     def save_layout_designer(self) -> None:
         data = self.current_layout_designer_data()
-        app_state.save_json(LAYOUT_DESIGN_FILE, data)
-        self.layout_status_var.set(f"Saved {len(self.layout_regions)} region(s) to {LAYOUT_DESIGN_FILE.name}.")
+        self.save_layout_designer_data(data)
+        self.layout_status_var.set(f"Saved {len(self.layout_regions)} {app_state.normalize_layout(data['layout'])} region(s).")
 
     def current_layout_designer_data(self) -> dict[str, Any]:
         return {
@@ -1816,16 +2413,24 @@ class RestreamApp(tk.Tk):
             "background": self.layout_bg_path,
             "layout_image_layer": self.layout_image_layer_var.get(),
             "canvas": {"width": DESIGN_WIDTH, "height": DESIGN_HEIGHT},
-            "regions": [self.normalize_layout_region(region) for region in self.layout_regions],
+            "regions": [
+                self.normalize_layout_region(region)
+                for region in self.layout_regions
+                if app_state.normalize_layout(region.get("layout", self.layout_mode_var.get()))
+                == app_state.normalize_layout(self.layout_mode_var.get())
+            ],
         }
 
-    def load_layout_designer(self, show_status: bool = True) -> None:
-        data = app_state.load_json(LAYOUT_DESIGN_FILE, {})
+    def load_layout_designer(self, show_status: bool = True, layout: str | None = None) -> None:
+        requested_layout = app_state.normalize_layout(layout or self.layout_mode_var.get())
+        store = self.layout_designer_store()
+        layouts = store.get("layouts", {})
+        data = layouts.get(requested_layout, {}) if isinstance(layouts, dict) else {}
         if not isinstance(data, dict):
             data = {}
         if show_status:
             self.push_layout_undo()
-        self.layout_mode_var.set(str(data.get("layout", self.layout_mode_var.get() or "4P")))
+        self.layout_mode_var.set(requested_layout)
         self.layout_image_layer_var.set(str(data.get("layout_image_layer", "Overlay above feeds") or "Overlay above feeds"))
         regions = data.get("regions", [])
         self.layout_regions = [self.normalize_layout_region(r) for r in regions if isinstance(r, dict)]
@@ -1834,11 +2439,16 @@ class RestreamApp(tk.Tk):
         self.layout_selected_ids.clear()
         self.load_layout_region_settings(None)
         if show_status:
-            self.layout_status_var.set(f"Loaded {len(self.layout_regions)} region(s).")
+            self.layout_status_var.set(f"Loaded {len(self.layout_regions)} {requested_layout} region(s).")
         self.redraw_layout_designer()
 
     def apply_current_designer_layout_to_obs(self) -> None:
-        self.apply_designer_layout_to_obs(self.current_layout_designer_data(), [app_state.normalize_layout(self.layout_mode_var.get())], save_first=True)
+        self.apply_designer_layout_to_obs(
+            self.current_layout_designer_data(),
+            [app_state.normalize_layout(self.layout_mode_var.get())],
+            save_first=True,
+            media_target=self.is_layout_media_target(),
+        )
 
     def desired_designer_scene_sources(self, data: dict[str, Any], layout: str) -> set[str]:
         layout = app_state.normalize_layout(layout)
@@ -1943,13 +2553,31 @@ class RestreamApp(tk.Tk):
         self.log_status(f"OBS Layout cleanup removed {removed} unused scene item(s) from {scene_name}.")
 
     def apply_saved_designer_layout_to_obs(self) -> None:
-        data = app_state.load_json(LAYOUT_DESIGN_FILE, {})
-        if not isinstance(data, dict) or (not data.get("regions") and not data.get("background")):
+        store = self.layout_designer_store()
+        layouts = store.get("layouts", {})
+        selected_layouts = self.selected_builder_layouts()
+        saved_layouts = [
+            (layout, layouts.get(layout, {}))
+            for layout in selected_layouts
+            if isinstance(layouts, dict)
+            and isinstance(layouts.get(layout), dict)
+            and (layouts[layout].get("regions") or layouts[layout].get("background"))
+        ]
+        if not saved_layouts:
             messagebox.showinfo("Custom OBS Layout", "No saved custom layout found. Open Custom OBS Layout, draw regions or load a layout image, then save the layout.")
             return
-        self.apply_designer_layout_to_obs(data, self.selected_builder_layouts(), save_first=False)
+        layout_names = ", ".join(layout for layout, _data in saved_layouts)
+        if not messagebox.askyesno("Apply OBS Layout", f"Apply the saved custom layout for {layout_names} to OBS?"):
+            return
+        for layout, data in saved_layouts:
+            self.apply_designer_layout_to_obs(data, [layout], save_first=False, confirm=False)
 
-    def designer_source_name_for_region(self, layout: str, region: dict[str, Any]) -> Optional[str]:
+    def designer_source_name_for_region(self, layout: str, region: dict[str, Any], media_target: bool = False) -> Optional[str]:
+        if media_target:
+            media_part = self.media_part_for_region(region)
+            if media_part:
+                slot, part = media_part
+                return self.media_source_name(layout, slot, part)
         explicit_source = str(region.get("source", "") or "").strip()
         if explicit_source:
             return explicit_source
@@ -2149,7 +2777,7 @@ class RestreamApp(tk.Tk):
         label = "layout image behind feeds" if layer_is_behind else "layout image overlay"
         return f"{status:<8} {label} -> {source_name}", status == "CREATE"
 
-    def designer_layer_order_names(self, layout: str, regions: list[dict[str, Any]]) -> list[str]:
+    def designer_layer_order_names(self, layout: str, regions: list[dict[str, Any]], media_target: bool = False) -> list[str]:
         layout = app_state.normalize_layout(layout)
         slots = [1, 2] if layout == "2P" else [1, 2, 3, 4]
         ordered: list[str] = ["Background Image [placeholder]"]
@@ -2163,7 +2791,7 @@ class RestreamApp(tk.Tk):
                     continue
                 if layer is not None and str(region.get("layer", "Above feeds") or "Above feeds") != layer:
                     continue
-                source = self.designer_source_name_for_region(layout, region)
+                source = self.designer_source_name_for_region(layout, region, media_target)
                 if source:
                     names.append(source)
             return names
@@ -2171,7 +2799,7 @@ class RestreamApp(tk.Tk):
         ordered.extend(region_source_names({"Image", "Browser"}, "Behind feeds"))
         for slot in slots:
             for part in ["Stream", "Tracker", "Timer", "Facecam"]:
-                ordered.append(f"{layout} R{slot} {part}")
+                ordered.append(self.media_source_name(layout, slot, part) if media_target else f"{layout} R{slot} {part}")
         ordered.extend(region_source_names({"Image", "Browser"}, "Above feeds"))
         ordered.extend([f"Background {layout}", f"Background {layout} Outlines"])
         ordered.extend(region_source_names({"Image", "Browser"}, "Above overlay"))
@@ -2190,9 +2818,16 @@ class RestreamApp(tk.Tk):
     def mapped_designer_layer_order_names(self, ordered_names: list[str], source_map: dict[str, Any]) -> list[str]:
         return [str(source_map.get(name, name)) for name in ordered_names]
 
-    def apply_designer_layout_to_obs(self, data: dict[str, Any], layouts: list[str], save_first: bool = False) -> None:
+    def apply_designer_layout_to_obs(
+        self,
+        data: dict[str, Any],
+        layouts: list[str],
+        save_first: bool = False,
+        media_target: bool = False,
+        confirm: bool = True,
+    ) -> None:
         if save_first:
-            app_state.save_json(LAYOUT_DESIGN_FILE, data)
+            self.save_layout_designer_data(data)
         regions = data.get("regions", [])
         background_path = str(data.get("background", "") or "")
         image_layer = str(data.get("layout_image_layer", "Overlay above feeds") or "Overlay above feeds")
@@ -2203,11 +2838,13 @@ class RestreamApp(tk.Tk):
             messagebox.showinfo("OBS Layout", "There are no layout regions or layout image to apply.")
             return
         layouts = [app_state.normalize_layout(layout) for layout in layouts]
+        target_label = "OBS Media Feed scenes" if media_target else "VLC Restream scenes"
         message = (
             "Apply the saved designer rectangles to OBS?\n\n"
+            f"Target: {target_label}.\n\n"
             "This creates missing Restream Control scenes/sources when possible, then moves and resizes them. It does not delete sources or change audio."
         )
-        if not messagebox.askyesno("Apply OBS Layout", message):
+        if confirm and not messagebox.askyesno("Apply OBS Layout", message):
             return
         if not self.save_obs_settings():
             return
@@ -2238,7 +2875,7 @@ class RestreamApp(tk.Tk):
         source_names = set(snapshot["all_sources"])
 
         for layout in layouts:
-            scene_name = f"{layout} Restream"
+            scene_name = self.designer_scene_name(layout, media_target)
             lines.append(f"{layout} layout")
             lines.append("-" * 40)
             if scene_name not in scene_names:
@@ -2277,7 +2914,7 @@ class RestreamApp(tk.Tk):
                 skipped += 1
                 lines.append("SKIP    no designer regions saved for this layout")
                 scene_items = self.scene_item_map(client, scene_name)
-                ordered_names = self.mapped_designer_layer_order_names(self.designer_layer_order_names(layout, []), source_map)
+                ordered_names = self.mapped_designer_layer_order_names(self.designer_layer_order_names(layout, [], media_target), source_map)
                 order_failures = self.apply_template_order(client, scene_name, ordered_names, scene_items)
                 if order_failures:
                     failed += len(order_failures)
@@ -2288,24 +2925,39 @@ class RestreamApp(tk.Tk):
                 continue
 
             for region in layout_regions:
-                logical_name = self.designer_source_name_for_region(layout, region)
+                logical_name = self.designer_source_name_for_region(layout, region, media_target)
                 label = self.layout_region_label(region)
                 if not logical_name:
                     skipped += 1
                     lines.append(f"SKIP    {label}: no OBS source mapping yet")
                     continue
-                source_name = str(source_map.get(logical_name, logical_name))
+                source_name = logical_name if media_target else str(source_map.get(logical_name, logical_name))
                 try:
-                    item_id, create_status = self.create_designer_source_if_missing(
-                        client,
-                        scene_name,
-                        source_name,
-                        region,
-                        source_names,
-                        scene_items,
-                        template,
-                        supported_kinds,
-                    )
+                    if media_target and self.media_part_for_region(region):
+                        slot, part = self.media_part_for_region(region) or (0, "")
+                        template_item = self.media_template_item(template, layout, slot, part)
+                        create_status = self.create_media_source_item(
+                            client,
+                            scene_name,
+                            source_name,
+                            source_names,
+                            scene_items,
+                            media_feed_service.source_url(slot, part),
+                            muted=True,
+                            template_item=template_item,
+                        )
+                        item_id = self.scene_item_map(client, scene_name).get(source_name)
+                    else:
+                        item_id, create_status = self.create_designer_source_if_missing(
+                            client,
+                            scene_name,
+                            source_name,
+                            region,
+                            source_names,
+                            scene_items,
+                            template,
+                            supported_kinds,
+                        )
                     if item_id is None:
                         skipped += 1
                         lines.append(f"SKIP    {label}: could not create mapped source ({source_name}, {create_status})")
@@ -2329,7 +2981,7 @@ class RestreamApp(tk.Tk):
                     failed += 1
                     lines.append(f"FAILED  {source_name}: {exc}")
             scene_items = self.scene_item_map(client, scene_name)
-            ordered_names = self.mapped_designer_layer_order_names(self.designer_layer_order_names(layout, layout_regions), source_map)
+            ordered_names = self.mapped_designer_layer_order_names(self.designer_layer_order_names(layout, layout_regions, media_target), source_map)
             order_failures = self.apply_template_order(client, scene_name, ordered_names, scene_items)
             if order_failures:
                 failed += len(order_failures)
@@ -2376,40 +3028,6 @@ class RestreamApp(tk.Tk):
         self.button(bottom, "Reload Names", self.reload_names).pack(side="left")
         self.button(bottom, "Save All", self.save_all_names, primary=True).pack(side="right")
 
-    def _build_checklist(self, parent: tk.Frame) -> None:
-        p = self.panel(parent, "Event Checklist")
-        actions = tk.Frame(p, bg=PANEL)
-        actions.pack(fill="x", padx=16, pady=(4, 10))
-        self.button(actions, "Refresh Checklist", self.refresh_checklist, primary=True).pack(side="left", padx=(0, 8))
-        self.button(actions, "Take Screenshots", self.take_screenshots).pack(side="left", padx=8)
-        self.button(actions, "Apply Saved Crops", self.apply_saved_crops_from_main).pack(side="left", padx=8)
-        self.button(actions, "Go to Cropping", lambda: self.show_page("Cropping")).pack(side="left", padx=8)
-
-        actions2 = tk.Frame(p, bg=PANEL)
-        actions2.pack(fill="x", padx=16, pady=(0, 10))
-        self.button(actions2, "Go to Sync", lambda: self.show_page("Sync")).pack(side="left", padx=(0, 8))
-        self.button(actions2, "Open Discord PTB", self.open_discord_ptb).pack(side="left", padx=8)
-        self.button(actions2, "Open OBS Text Folder", lambda: open_folder(OBS_TEXT_DIR)).pack(side="left", padx=8)
-        self.button(actions2, "OBS Settings", lambda: self.show_page("Settings")).pack(side="left", padx=8)
-
-        checklist_frame = tk.Frame(p, bg=INPUT_BG)
-        checklist_frame.pack(fill="both", expand=True, padx=16, pady=(0, 14))
-        checklist_scroll = ttk.Scrollbar(checklist_frame, orient="vertical")
-        checklist_scroll.pack(side="right", fill="y")
-        self.checklist_text = tk.Text(
-            checklist_frame,
-            height=22,
-            bg=INPUT_BG,
-            fg="#e5e7eb",
-            insertbackground="#e5e7eb",
-            relief="flat",
-            wrap="word",
-            yscrollcommand=checklist_scroll.set,
-        )
-        self.checklist_text.pack(side="left", fill="both", expand=True)
-        checklist_scroll.configure(command=self.checklist_text.yview)
-        self.refresh_checklist(include_obs=False)
-
     def _build_settings(self, parent: tk.Frame) -> None:
         p = self.panel(parent, "Settings")
         row1 = tk.Frame(p, bg=PANEL)
@@ -2418,6 +3036,7 @@ class RestreamApp(tk.Tk):
         self.button(row1, "Open OBS Text Folder", lambda: open_folder(OBS_TEXT_DIR)).pack(side="left", padx=8)
         self.button(row1, "Open Screenshot Folder", lambda: open_folder(SCREENSHOT_DIR)).pack(side="left", padx=8)
         self.button(row1, "Open State Folder", lambda: open_folder(app_state.STATE_DIR)).pack(side="left", padx=8)
+        self.button(row1, "Open Discord PTB", self.open_discord_ptb).pack(side="left", padx=8)
 
         row2 = tk.Frame(p, bg=PANEL)
         row2.pack(fill="x", padx=16, pady=(0, 12))
@@ -2969,6 +3588,9 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             messagebox.showerror("Could not write names", str(exc))
 
     def launch_from_gui(self) -> None:
+        if playback_engine_key(self.playback_engine_var.get()) == "OBS Media Feeds":
+            self.start_media_selected_race()
+            return
         mod = self.launch_mod
         if not mod:
             messagebox.showerror("Missing launcher", "launch_crosskeys.py could not be loaded.")
@@ -3316,6 +3938,7 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
         found, missing = self.crop_preset_counts(layout, runners) if runners else (0, expected * 3)
         self.dashboard_layout_var.set(f"Layout: {layout}")
         self.dashboard_runners_var.set(f"Runners: {runner_count}/{expected}")
+        self.dashboard_playback_var.set(f"Playback: {playback_display_name(self.playback_engine_var.get())}")
         if include_obs:
             self.dashboard_obs_var.set("OBS: checking...")
             threading.Thread(target=self.update_obs_dashboard_worker, daemon=True).start()
@@ -3328,13 +3951,6 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
         except Exception:
             text = "OBS: not connected"
         self.after(0, lambda: self.dashboard_obs_var.set(text))
-
-    def refresh_checklist(self, include_obs: bool = True) -> None:
-        if not hasattr(self, "checklist_text"):
-            return
-        self.checklist_text.delete("1.0", "end")
-        self.checklist_text.insert("1.0", self.build_checklist_report(include_obs=include_obs))
-        self.update_dashboard(include_obs=include_obs)
 
     def refresh_wizard_checks(self, include_obs: bool = True) -> None:
         frame = self.wizard_checks_frame
@@ -3359,6 +3975,115 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
         frame.columnconfigure(0, weight=1)
         missing = len([1 for ok, _label in results if not ok])
         self.wizard_status_var.set("All setup checks passed." if missing == 0 else f"{missing} setup check(s) need attention.")
+        self.refresh_runtime_requirements()
+
+    def playback_runtime_requirements(self) -> list[dict[str, Any]]:
+        """Tools needed for the currently selected playback engine."""
+        requirements = [
+            {
+                "name": "Streamlink",
+                "installed": self.streamlink_available,
+                "winget_id": "Streamlink.Streamlink",
+                "download_url": "https://streamlink.github.io/install.html",
+            },
+        ]
+        if playback_engine_key(self.playback_engine_var.get()) == "OBS Media Feeds":
+            requirements.append(
+                {
+                    "name": "FFmpeg",
+                    "installed": lambda: media_feed_service.command_available("ffmpeg"),
+                    "winget_id": "Gyan.FFmpeg",
+                    "download_url": "https://www.gyan.dev/ffmpeg/builds/",
+                }
+            )
+        else:
+            requirements.append(
+                {
+                    "name": "VLC",
+                    "installed": self.vlc_available,
+                    "winget_id": "VideoLAN.VLC",
+                    "download_url": "https://images.videolan.org/vlc/download-windows.html",
+                }
+            )
+        return requirements
+
+    def missing_runtime_requirements(self) -> list[dict[str, Any]]:
+        return [item for item in self.playback_runtime_requirements() if not bool(item["installed"]())]
+
+    def refresh_runtime_requirements(self) -> None:
+        engine = playback_display_name(self.playback_engine_var.get())
+        requirements = self.playback_runtime_requirements()
+        status = ", ".join(
+            f"{item['name']}: {'installed' if item['installed']() else 'missing'}" for item in requirements
+        )
+        winget_note = " Windows Package Manager is available." if shutil.which("winget") else " Windows Package Manager is not available; use the download links instead."
+        self.wizard_runtime_var.set(f"{engine} requires {status}.{winget_note}")
+
+    def open_missing_runtime_downloads(self) -> None:
+        missing = self.missing_runtime_requirements()
+        if not missing:
+            messagebox.showinfo("Required tools", "The tools required for the selected playback engine are already installed.")
+            return
+        for item in missing:
+            webbrowser.open_new_tab(str(item["download_url"]))
+        names = ", ".join(str(item["name"]) for item in missing)
+        self.wizard_status_var.set(f"Opened official download pages for: {names}.")
+
+    def install_missing_runtime_tools(self) -> None:
+        missing = self.missing_runtime_requirements()
+        if not missing:
+            messagebox.showinfo("Install missing tools", "The tools required for the selected playback engine are already installed.")
+            return
+        if not shutil.which("winget"):
+            messagebox.showinfo(
+                "Windows Package Manager unavailable",
+                "Windows Package Manager is not available on this PC. The official download pages will open instead.",
+            )
+            self.open_missing_runtime_downloads()
+            return
+        names = ", ".join(str(item["name"]) for item in missing)
+        if not messagebox.askyesno(
+            "Install missing tools",
+            f"Install {names} with Windows Package Manager?\n\nWindows may ask for permission. OBS setup remains manual.",
+        ):
+            return
+        self.wizard_status_var.set(f"Installing {names}...")
+
+        def worker() -> None:
+            outcomes: list[str] = []
+            for item in missing:
+                name = str(item["name"])
+                command = [
+                    "winget", "install", "--id", str(item["winget_id"]), "--exact", "--source", "winget",
+                    "--accept-package-agreements", "--accept-source-agreements",
+                ]
+                try:
+                    result = subprocess.run(
+                        command,
+                        capture_output=True,
+                        text=True,
+                        timeout=600,
+                        creationflags=hidden_creationflags(),
+                    )
+                    if result.returncode == 0:
+                        outcomes.append(f"Installed {name}")
+                    else:
+                        detail = (result.stderr or result.stdout or f"exit code {result.returncode}").strip().splitlines()[-1]
+                        outcomes.append(f"Could not install {name}: {detail}")
+                except Exception as exc:
+                    outcomes.append(f"Could not install {name}: {exc}")
+
+            def complete() -> None:
+                self.refresh_wizard_checks(include_obs=False)
+                self.wizard_status_var.set("; ".join(outcomes) + " Restart Restream Control after installation.")
+                messagebox.showinfo(
+                    "Tool installation",
+                    "\n".join(outcomes) + "\n\nRestart Restream Control so Windows can refresh command paths.",
+                )
+
+            self.after(0, complete)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def open_setup_guide(self) -> None:
         path = REPO_ROOT / "README_SETUP.md"
@@ -3404,102 +4129,12 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
         self.show_page("Audio")
         self.load_audio_mapper()
 
-    def wizard_refresh_checklist(self) -> None:
-        self.refresh_checklist()
-        self.show_page("Checklist")
-
-    def build_checklist_report(self, include_obs: bool = True) -> str:
-        race = app_state.load_current_race()
-        lines = ["Event-Day Checklist", ""]
-
-        for ok, label in self.preflight_results(include_obs=include_obs):
-            lines.append(f"{'OK' if ok else 'FIX'} - {label}")
-
-        lines.append("")
-        if race:
-            layout = app_state.normalize_layout(race.get("mode"))
-            runners = race.get("runners", {})
-            runner_count = len(runners) if isinstance(runners, dict) else 0
-            expected_count = 2 if layout == "2P" else 4
-            lines.append(f"{'OK' if runner_count == expected_count else 'FIX'} - Current race saved as {layout} with {runner_count}/{expected_count} runner(s)")
-            if isinstance(runners, dict):
-                lines.extend(self.crop_health_lines(layout, runners))
-                if include_obs:
-                    lines.extend(self.obs_source_health_lines(layout))
-        else:
-            lines.append("FIX - No current race saved yet")
-
-        lines.append("")
-        lines.append("OBS Text Files")
-        for filename in ["runner1.txt", "runner2.txt", "runner3.txt", "runner4.txt", "comm_names.txt", "race_mode.txt"]:
-            value = self.read_text_file(filename)
-            label = filename.replace(".txt", "")
-            status = "OK" if value else "CHECK"
-            lines.append(f"{status} - {label}: {value or '(blank)'}")
-
-        lines.append("")
-        lines.append("Screenshots")
-        screenshot_count = self.screenshot_count()
-        lines.append(f"{'OK' if screenshot_count else 'CHECK'} - Screenshot files available: {screenshot_count}")
-
-        lines.append("")
-        lines.append("Manual checks")
-        lines.append("CHECK - OBS is on the correct 2P or 4P scene")
-        lines.append("CHECK - Discord voice/browser sources are ready")
-        lines.append("CHECK - Audio levels look sane in OBS")
-        lines.append("CHECK - Twitch dashboard/restream destination is ready")
-        return "\n".join(lines)
-
-    def crop_health_lines(self, layout: str, runners: dict[str, Any]) -> list[str]:
-        lines = ["", "Crop Presets"]
-        found = 0
-        missing = 0
-        for slot in ["1", "2", "3", "4"]:
-            runner = runners.get(slot)
-            if not isinstance(runner, dict):
-                continue
-            display = str(runner.get("display_name") or runner.get("twitch_name") or f"Runner {slot}")
-            twitch = str(runner.get("twitch_name") or "").strip()
-            if not twitch:
-                lines.append(f"R{slot} {display}: missing Twitch name")
-                continue
-            parts = []
-            for part in self.crop_parts_for_layout(layout):
-                if app_state.get_crop_preset(twitch, part, layout):
-                    found += 1
-                    parts.append(f"{part}=OK")
-                else:
-                    missing += 1
-                    parts.append(f"{part}=MISSING")
-            lines.append(f"R{slot} {display}: " + ", ".join(parts))
-        lines.append(f"Crop preset summary: {found} found, {missing} missing for {layout}")
-        return lines
-
     def crop_parts_for_layout(self, layout: str) -> list[str]:
         layout = app_state.normalize_layout(layout)
         parts = ["Stream", "Tracker", "Timer"]
         if any(target_layout == layout and part == "Facecam" for _name, target_layout, _slot, part in obs_crop_service.designer_crop_targets()):
             parts.append("Facecam")
         return parts
-
-    def obs_source_health_lines(self, layout: str) -> list[str]:
-        lines = ["", "OBS Sources"]
-        expected_slots = ["1", "2"] if layout == "2P" else ["1", "2", "3", "4"]
-        expected = [f"{layout} R{slot} {part}" for slot in expected_slots for part in self.crop_parts_for_layout(layout)]
-        try:
-            client = obs_crop_service.connect()
-            client.get_version()
-            locations = obs_crop_service.find_crop_targets(client)
-        except Exception as exc:
-            lines.append(f"OBS source check failed: {exc}")
-            return lines
-
-        found = [source for source in expected if source in locations]
-        missing = [source for source in expected if source not in locations]
-        lines.append(f"Found {len(found)} of {len(expected)} expected {layout} crop targets.")
-        if missing:
-            lines.append("Missing OBS targets: " + ", ".join(missing))
-        return lines
 
     def obs_settings_from_fields(self) -> dict[str, Any]:
         host = self.obs_host_var.get().strip() or "localhost"
@@ -3673,6 +4308,9 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             return ["4P"]
         return ["2P", "4P"]
 
+    def builder_uses_media_feeds(self) -> bool:
+        return playback_engine_key(self.playback_engine_var.get()) == "OBS Media Feeds"
+
     def expected_builder_items(self, layout: str) -> dict[str, list[str]]:
         layout = app_state.normalize_layout(layout)
         if layout == "2P":
@@ -3681,6 +4319,19 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
         else:
             runner_slots = [1, 2, 3, 4]
             crop_targets = [name for name, *_rest in obs_crop_service.TARGETS_4P]
+        if self.builder_uses_media_feeds():
+            media_sources = [
+                self.media_source_name(layout, slot, part)
+                for slot in runner_slots
+                for part in ("Stream", "Tracker", "Timer")
+            ]
+            return {
+                "Scenes": [self.media_scene_name(layout)],
+                "Media sources": media_sources,
+                "Text sources": [f"Runner {slot} Name" for slot in runner_slots] + ["Comms Name"],
+                "Background sources": [f"Background {layout}", f"Background {layout} Outlines", "Background Image [placeholder]"],
+                "Audio sources": ["Discord Audio", "Mic Audio"],
+            }
         return {
             "Scenes": [f"{layout} Restream"],
             "Crop sources": crop_targets,
@@ -4039,6 +4690,9 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
 
     def create_missing_obs_sources(self) -> None:
         layouts = self.selected_builder_layouts()
+        if self.builder_uses_media_feeds():
+            self.create_media_obs_layouts(layouts, from_template_setup=True)
+            return
         message = (
             "Create missing OBS scenes and default sources for "
             f"{', '.join(layouts)}?\n\n"
@@ -4146,6 +4800,9 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
 
     def reset_to_default_template(self) -> None:
         layouts = self.selected_builder_layouts()
+        if self.builder_uses_media_feeds():
+            self.create_media_obs_layouts(layouts, from_template_setup=True)
+            return
         message = (
             "Reset the included Restream Control template layout for "
             f"{', '.join(layouts)}?\n\n"
@@ -4313,8 +4970,9 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             return
 
         obs_version = getattr(version, "obs_version", None) or getattr(version, "obs_web_socket_version", None) or "connected"
+        target_name = "Direct OBS Media" if self.builder_uses_media_feeds() else "VLC Windows"
         lines: list[str] = [
-            "Template Setup Scan",
+            f"Template Setup Scan ({target_name})",
             f"OBS: {obs_version}",
             "",
             f"Detected scenes: {len(snapshot['scenes'])}",
@@ -4898,19 +5556,6 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
         else:
             self.log_status(f"Replaced Runner {slot}. No saved OBS crops to apply for {layout}.")
 
-    def apply_saved_crops_from_main(self) -> None:
-        try:
-            applied, missing, layout, applied_map = self.apply_saved_crops()
-        except Exception as exc:
-            messagebox.showerror("Apply saved crops failed", str(exc))
-            return
-        mapping = " | " + ", ".join(applied_map) if applied_map else ""
-        self.log_status(f"Applied {applied} saved OBS crop(s) for {layout}.{mapping}")
-        if missing:
-            messagebox.showinfo("Apply saved crops", f"Applied {applied} crop(s).\n\nMissing or failed:\n" + "\n".join(missing))
-        else:
-            messagebox.showinfo("Apply saved crops", f"Applied all {applied} saved crop(s) for {layout}.")
-
     def streamlink_available(self) -> bool:
         return shutil.which("streamlink") is not None
 
@@ -4980,8 +5625,31 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             return True, "Streamlink returned stream data"
         streams = data.get("streams") if isinstance(data, dict) else None
         if isinstance(streams, dict) and streams:
-            return True, "live"
+            video_streams = self.streamlink_video_stream_names(streams)
+            if video_streams:
+                return True, f"live ({', '.join(video_streams[:4])})"
+            if "audio_only" in streams:
+                return False, "audio-only stream found; no video quality is available"
+            return False, "no video quality found in Streamlink results"
         return False, "no playable streams found; the channel may be offline"
+
+    def streamlink_video_stream_names(self, streams: dict[str, Any]) -> list[str]:
+        alias_names = {"best", "worst"}
+        audio_url = ""
+        audio_stream = streams.get("audio_only")
+        if isinstance(audio_stream, dict):
+            audio_url = str(audio_stream.get("url", "") or "")
+
+        video_names: list[str] = []
+        for name, stream in streams.items():
+            normalized = str(name).strip().lower()
+            if not normalized or normalized == "audio_only" or normalized in alias_names:
+                continue
+            stream_url = str(stream.get("url", "") or "") if isinstance(stream, dict) else ""
+            if audio_url and stream_url and stream_url == audio_url:
+                continue
+            video_names.append(str(name))
+        return video_names
 
     def parse_streamlink_error(self, stdout: str, stderr: str) -> str:
         raw = (stderr or stdout or "").strip()
@@ -5022,8 +5690,11 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             (importlib.util.find_spec("PIL") is not None, "Python package: Pillow"),
             (importlib.util.find_spec("obsws_python") is not None, "Python package: obsws-python"),
             (self.streamlink_available(), "Command available: streamlink"),
-            (self.vlc_available(), "VLC installed or available on PATH"),
         ]
+        if playback_engine_key(self.playback_engine_var.get()) == "OBS Media Feeds":
+            results.append((media_feed_service.command_available("ffmpeg"), "Command available: ffmpeg"))
+        else:
+            results.append((self.vlc_available(), "VLC installed or available on PATH"))
         if include_obs:
             results.append((obs_ok, "OBS websocket connection"))
         else:
@@ -5059,6 +5730,8 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             f"State folder: {app_state.STATE_DIR}",
             f"VLC found: {'yes' if self.vlc_available() else 'no'}",
             f"Streamlink found: {'yes' if self.streamlink_available() else 'no'}",
+            f"FFmpeg found: {'yes' if media_feed_service.command_available('ffmpeg') else 'no'}",
+            f"Playback engine: {playback_display_name(self.playback_engine_var.get())}",
         ]
         obs_config = app_state.load_config().get("obs_websocket", {})
         if isinstance(obs_config, dict):
@@ -5090,8 +5763,6 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
         pieces.append("Sync: " + ("OK" if bundled_or_exists(SYNC_TOOL) else "Missing"))
         self.status_var.set("  |  ".join(pieces))
         self.update_dashboard(include_obs=True)
-        if hasattr(self, "checklist_text"):
-            self.refresh_checklist(include_obs=False)
         if self.name_vars:
             self.reload_names()
 
@@ -5104,8 +5775,12 @@ def log_crash(exc: BaseException) -> None:
 
 if __name__ == "__main__":
     try:
-        app = RestreamApp()
-        app.mainloop()
+        if "--media-feed-worker" in sys.argv:
+            worker_args = [arg for arg in sys.argv[1:] if arg != "--media-feed-worker"]
+            raise SystemExit(media_feed_service.worker_main(worker_args))
+        else:
+            app = RestreamApp()
+            app.mainloop()
     except Exception as exc:
         log_crash(exc)
         raise
