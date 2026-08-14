@@ -82,7 +82,7 @@ Use one of these:
 
 Most new users should start with `Template Setup`.
 
-For `OBS Media Feeds`, open `Direct OBS` once afterward and click `Create 2P/4P OBS Layouts`. The created Game source carries each runner's audio; Tracker, Timer, and Facecam sources are video-only.
+For `OBS Media Feeds`, open `Direct OBS` once afterward and click `Create 2P/4P OBS Layouts`. The created Game source carries each runner's audio; Tracker, Timer, and Facecam sources are video-only. `Direct quality` defaults to the preferred quality order and applies after starting or restarting a feed.
 
 ## 6. Audio
 

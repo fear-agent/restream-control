@@ -31,7 +31,7 @@ Open `Setup Wizard` after starting the app. It checks the tools required for the
 Choose one method on `Setup`. Cropping, Sync, Audio, and Custom Layout follow that choice automatically.
 
 - `Standard: VLC Windows`: the established workflow. Each runner opens in a VLC window.
-- `Direct to OBS: Media Feeds`: no VLC windows. Streamlink and FFmpeg send feeds directly to OBS. On first use, open `Direct OBS` and click `Create 2P/4P OBS Layouts`.
+- `Direct to OBS: Media Feeds`: no VLC windows. Streamlink and FFmpeg send feeds directly to OBS. On first use, open `Direct OBS` and click `Create 2P/4P OBS Layouts`. Its `Direct quality` control applies when a feed is started or restarted.
 
 ## Main Workflow
 
