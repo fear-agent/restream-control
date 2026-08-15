@@ -20,12 +20,19 @@ MAX_AUTO_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
 
 
-def port_base() -> int:
+def normalize_layout(layout: str | int | None = None) -> str:
+    return "2P" if str(layout or "").strip().upper() in {"2", "2P"} else "4P"
+
+
+def port_base(layout: str | int | None = None) -> int:
     try:
         value = int(app_state.load_config().get("media_feed_port_base", 5001))
-        return value if 1 <= value <= 65531 else 5001
+        value = value if 1 <= value <= 65400 else 5001
     except (TypeError, ValueError):
-        return 5001
+        value = 5001
+    # 4P retains the original addresses. 2P needs a separate address range
+    # because OBS Media Sources can otherwise compete for the same UDP feed.
+    return value + (100 if normalize_layout(layout) == "2P" else 0)
 
 
 # Facecam is not a physical camera in media-feed mode. It is another
@@ -33,7 +40,7 @@ def port_base() -> int:
 MEDIA_PARTS = ("Stream", "Tracker", "Timer", "Facecam")
 
 
-def port_for_slot(slot: int, part: str = "Stream") -> int:
+def port_for_slot(slot: int, part: str = "Stream", layout: str | int | None = None) -> int:
     """Give each cropable part its own local UDP output.
 
     A normal UDP feed can only be consumed reliably by one OBS Media Source.
@@ -44,16 +51,16 @@ def port_for_slot(slot: int, part: str = "Stream") -> int:
     if normalized_part == "Facecam":
         # Keep the original Stream/Tracker/Timer addresses stable so an app
         # update never breaks existing OBS Media Source URLs.
-        return port_base() + 12 + (int(slot) - 1)
+        return port_base(layout) + 12 + (int(slot) - 1)
     try:
         part_offset = ("Stream", "Tracker", "Timer").index(normalized_part)
     except ValueError:
         part_offset = 0
-    return port_base() + ((int(slot) - 1) * 3) + part_offset
+    return port_base(layout) + ((int(slot) - 1) * 3) + part_offset
 
 
-def source_url(slot: int, part: str = "Stream") -> str:
-    return f"udp://127.0.0.1:{port_for_slot(slot, part)}?pkt_size=1316"
+def source_url(slot: int, part: str = "Stream", layout: str | int | None = None) -> str:
+    return f"udp://127.0.0.1:{port_for_slot(slot, part, layout)}?pkt_size=1316"
 
 
 def state_path(slot: int) -> Path:
@@ -72,9 +79,11 @@ def load_state(slot: int) -> dict[str, Any]:
 def write_state(slot: int, **updates: Any) -> None:
     existing = load_state(slot)
     existing.update(updates)
+    layout = normalize_layout(existing.get("layout"))
     existing["slot"] = int(slot)
-    existing["ports"] = {part.lower(): port_for_slot(slot, part) for part in MEDIA_PARTS}
-    existing["source_urls"] = {part.lower(): source_url(slot, part) for part in MEDIA_PARTS}
+    existing["layout"] = layout
+    existing["ports"] = {part.lower(): port_for_slot(slot, part, layout) for part in MEDIA_PARTS}
+    existing["source_urls"] = {part.lower(): source_url(slot, part, layout) for part in MEDIA_PARTS}
     existing["updated_at"] = datetime.now().isoformat(timespec="seconds")
     app_state.save_json(state_path(slot), existing)
 
@@ -146,6 +155,7 @@ def start_slot(
     twitch_name: str,
     quality: str,
     delay_seconds: float | int | str | None = 0,
+    layout: str | int | None = None,
 ) -> None:
     errors = prereq_errors()
     if errors:
@@ -155,6 +165,7 @@ def start_slot(
         raise RuntimeError(f"Runner {slot} has no Twitch name.")
 
     delay = normalize_delay(delay_seconds)
+    normalized_layout = normalize_layout(layout)
     stop_slot(slot)
     write_state(
         slot,
@@ -164,6 +175,7 @@ def start_slot(
         twitch_name=clean_twitch,
         quality=str(quality).strip() or "best",
         delay_seconds=delay,
+        layout=normalized_layout,
         worker_pid=0,
     )
 
@@ -173,6 +185,7 @@ def start_slot(
         "--twitch-name", clean_twitch,
         "--quality", str(quality).strip() or "best",
         "--delay-seconds", str(delay),
+        "--layout", normalized_layout,
     ]
     if app_state.IS_FROZEN:
         command = [sys.executable, "--media-feed-worker", *worker_args]
@@ -214,6 +227,7 @@ def restart_slot_with_delay(slot: int, delay_seconds: float | int | str) -> None
         twitch,
         str(state.get("quality") or "best"),
         delay_seconds,
+        state.get("layout"),
     )
 
 
@@ -240,6 +254,7 @@ def worker_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--twitch-name", required=True)
     parser.add_argument("--quality", required=True)
     parser.add_argument("--delay-seconds", type=float, default=0)
+    parser.add_argument("--layout", default="4P")
     args = parser.parse_args(argv)
     slot = args.slot
     if slot not in {1, 2, 3, 4}:
@@ -247,6 +262,7 @@ def worker_main(argv: list[str] | None = None) -> int:
 
     FEED_DIR.mkdir(parents=True, exist_ok=True)
     delay = normalize_delay(args.delay_seconds)
+    layout = normalize_layout(args.layout)
     streamlink_cmd = [
         "streamlink", "--twitch-low-latency", "--stdout",
         f"https://twitch.tv/{args.twitch_name}", args.quality,
@@ -273,16 +289,16 @@ def worker_main(argv: list[str] | None = None) -> int:
         # only need video, which keeps their sources out of OBS's audio mixer.
         "-map", "0:v?", "-map", "0:a?",
         "-c", "copy", "-muxdelay", "0", "-muxpreload", "0",
-        *output_args(source_url(slot, "Stream")),
+        *output_args(source_url(slot, "Stream", layout)),
         "-map", "0:v?", "-an",
         "-c", "copy", "-muxdelay", "0", "-muxpreload", "0",
-        *output_args(source_url(slot, "Tracker")),
+        *output_args(source_url(slot, "Tracker", layout)),
         "-map", "0:v?", "-an",
         "-c", "copy", "-muxdelay", "0", "-muxpreload", "0",
-        *output_args(source_url(slot, "Timer")),
+        *output_args(source_url(slot, "Timer", layout)),
         "-map", "0:v?", "-an",
         "-c", "copy", "-muxdelay", "0", "-muxpreload", "0",
-        *output_args(source_url(slot, "Facecam")),
+        *output_args(source_url(slot, "Facecam", layout)),
     ]
     child_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
     child_startupinfo = None
@@ -307,6 +323,7 @@ def worker_main(argv: list[str] | None = None) -> int:
                     twitch_name=args.twitch_name,
                     quality=args.quality,
                     delay_seconds=delay,
+                    layout=layout,
                 )
                 log_file.write(f"\n[{datetime.now().isoformat(timespec='seconds')}] Starting {args.twitch_name}, attempt {attempt}\n")
                 log_file.flush()

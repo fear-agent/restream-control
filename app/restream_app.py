@@ -920,7 +920,7 @@ class RestreamApp(tk.Tk):
         for slot in range(1, 5):
             tk.Label(
                 url_row,
-                text=f"R{slot} Stream: {media_feed_service.source_url(slot, 'Stream')}",
+                text=f"R{slot} Stream: {media_feed_service.source_url(slot, 'Stream', self.mode_var.get())}",
                 bg=INPUT_BG,
                 fg=TEXT,
                 font=("Consolas", 9),
@@ -1061,12 +1061,13 @@ class RestreamApp(tk.Tk):
             mod.update_obs_text_files(mode, selected, comms)
             mod.save_last_setup(mode, selected, comms)
             app_state.save_current_race(mode, selected, comms)
+            self.repair_media_source_connections()
             for slot in range(mode + 1, 5):
                 media_feed_service.stop_slot(slot)
             quality = self.media_feed_quality()
             for slot in available_slots:
                 runner = selected[slot]
-                media_feed_service.start_slot(slot, runner.display_name, runner.twitch_name, quality)
+                media_feed_service.start_slot(slot, runner.display_name, runner.twitch_name, quality, layout=mode)
             skipped = f" Skipped: {'; '.join(stream_errors)}" if stream_errors else ""
             self.media_feed_status_var.set(f"Started {len(available_slots)}/{mode} local OBS feed(s).{skipped}")
             self.log_status(self.media_feed_status_var.get())
@@ -1091,8 +1092,9 @@ class RestreamApp(tk.Tk):
             messagebox.showerror("Stream unavailable", "\n".join(stream_errors))
             return
         try:
+            self.repair_media_source_connections()
             quality = self.media_feed_quality()
-            media_feed_service.start_slot(slot, runner.display_name, runner.twitch_name, quality)
+            media_feed_service.start_slot(slot, runner.display_name, runner.twitch_name, quality, layout=self.mode_var.get())
             self.media_feed_status_var.set(f"Starting R{slot}: {runner.display_name}")
             self.log_status(self.media_feed_status_var.get())
             self.after(1500, lambda: self.refresh_media_feeds(check_obs_video=True))
@@ -1140,6 +1142,45 @@ class RestreamApp(tk.Tk):
             # safe initial transform and input settings shape.
             return self.template_source(template, f"{app_state.normalize_layout(layout)} R{slot} Stream")
 
+    def media_source_settings(self, input_url: str) -> dict[str, Any]:
+        return {
+            "input": input_url,
+            "is_local_file": False,
+            # 2P and 4P use different UDP address ranges, so sources can
+            # remain open and keep playing through scene changes.
+            "close_when_inactive": False,
+            "restart_on_activate": False,
+        }
+
+    def repair_media_source_connections(self) -> None:
+        """Keep existing Direct OBS sources from competing for UDP feeds."""
+        try:
+            client = obs_crop_service.connect()
+            source_names = set(self.scan_obs_snapshot(client)["all_sources"])
+        except Exception as exc:
+            self.log_status(f"Could not repair Direct OBS source settings: {exc}")
+            return
+
+        repaired = 0
+        for layout in ("2P", "4P"):
+            slots = range(1, 3) if layout == "2P" else range(1, 5)
+            for slot in slots:
+                for part in media_feed_service.MEDIA_PARTS:
+                    source_name = self.media_source_name(layout, slot, part)
+                    if source_name not in source_names:
+                        continue
+                    try:
+                        client.set_input_settings(
+                            source_name,
+                            self.media_source_settings(media_feed_service.source_url(slot, part, layout)),
+                            True,
+                        )
+                        repaired += 1
+                    except Exception:
+                        continue
+        if repaired:
+            self.log_status(f"Repaired Direct OBS connection settings for {repaired} media source(s).")
+
     def create_media_source_item(
         self,
         client: Any,
@@ -1159,10 +1200,7 @@ class RestreamApp(tk.Tk):
                 source_name,
                 "ffmpeg_source",
                 {
-                    "input": input_url,
-                    "is_local_file": False,
-                    # Local UDP feeds must continue through scene changes.
-                    "restart_on_activate": False,
+                    **self.media_source_settings(input_url),
                 },
                 True,
             )
@@ -1178,7 +1216,7 @@ class RestreamApp(tk.Tk):
             try:
                 client.set_input_settings(
                     source_name,
-                    {"input": input_url, "is_local_file": False, "restart_on_activate": False},
+                    self.media_source_settings(input_url),
                     True,
                 )
             except Exception:
@@ -1259,7 +1297,7 @@ class RestreamApp(tk.Tk):
                             source_name,
                             source_names,
                             scene_items,
-                            media_feed_service.source_url(slot, part),
+                            media_feed_service.source_url(slot, part, layout),
                             muted=part != "Stream",
                             template_item=item,
                         )
@@ -2968,7 +3006,7 @@ class RestreamApp(tk.Tk):
                             source_name,
                             source_names,
                             scene_items,
-                            media_feed_service.source_url(slot, part),
+                            media_feed_service.source_url(slot, part, layout),
                             muted=True,
                             template_item=template_item,
                         )
@@ -3761,7 +3799,7 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             app_state.update_current_race_slot(slot, runner)
             if direct_obs:
                 quality = self.media_feed_quality()
-                media_feed_service.start_slot(slot, runner.display_name, runner.twitch_name, quality)
+                media_feed_service.start_slot(slot, runner.display_name, runner.twitch_name, quality, layout=self.mode_var.get())
                 self.media_feed_status_var.set(f"Restarting R{slot}: {runner.display_name}")
                 self.after(1500, lambda: self.refresh_media_feeds(check_obs_video=True))
             else:
