@@ -551,6 +551,7 @@ class RestreamApp(tk.Tk):
 
         self._setup_style()
         self._build()
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.load_runners_into_setup()
         self.show_page("Setup Wizard" if self.should_show_setup_wizard() else "Setup")
         self.after(150, self.refresh_status)
@@ -859,6 +860,28 @@ class RestreamApp(tk.Tk):
         self.update_playback_launch_button()
         self.refresh_runtime_requirements()
         self.update_dashboard(include_obs=False)
+
+    def on_close(self) -> None:
+        running_slots = [
+            slot
+            for slot, state in media_feed_service.all_states().items()
+            if state.get("status") in {"starting", "retrying", "running"}
+        ]
+        if running_slots:
+            slots = ", ".join(f"R{slot}" for slot in running_slots)
+            choice = messagebox.askyesnocancel(
+                "Direct OBS feeds still running",
+                f"Direct OBS feeds are still running for {slots}.\n\n"
+                "Yes: stop feeds and exit.\n"
+                "No: keep feeds running and exit.\n"
+                "Cancel: return to Restream Control.",
+                parent=self,
+            )
+            if choice is None:
+                return
+            if choice:
+                media_feed_service.stop_all()
+        self.destroy()
 
     def update_playback_launch_button(self) -> None:
         button = getattr(self, "launch_button", None)
