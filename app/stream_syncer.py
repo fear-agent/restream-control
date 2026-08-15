@@ -691,7 +691,7 @@ class SyncPanel(tk.Frame):
         for slot, state in states.items():
             if state.get("status") != "running":
                 continue
-            response = client.get_source_screenshot(f"{mode} R{slot} Media Timer", "png", 1280, 720, 90)
+            response = client.get_source_screenshot(f"{mode} R{slot} Media Stream", "png", 1280, 720, 90)
             image_data = getattr(response, "image_data", "")
             if image_data:
                 encoded = image_data.split(",", 1)[1] if "," in image_data else image_data

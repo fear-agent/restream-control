@@ -900,7 +900,7 @@ class RestreamApp(tk.Tk):
             feeds,
             text=(
                 "No VLC windows. Each runner uses Streamlink and FFmpeg to send a local feed directly to OBS. "
-                "Each runner has separate Stream, Tracker, Timer, and custom Facecam feeds so OBS can crop them independently. "
+                "OBS decodes each runner once, then uses independent Stream, Tracker, Timer, and custom Facecam scene items. "
                 "Choose Direct to OBS on Setup before using this workflow."
             ),
             bg=PANEL,
@@ -933,7 +933,7 @@ class RestreamApp(tk.Tk):
         tk.Label(urls, text="OBS Media Source URLs", bg=PANEL_2, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=12, pady=(8, 4))
         tk.Label(
             urls,
-            text="Each cropable part has its own local feed. The automatic layout setup below creates the OBS sources for you.",
+            text="Each runner has one local feed. The automatic layout setup creates independent crop items from it.",
             bg=PANEL_2,
             fg=MUTED,
             font=("Segoe UI", 9),
@@ -943,7 +943,7 @@ class RestreamApp(tk.Tk):
         for slot in range(1, 5):
             tk.Label(
                 url_row,
-                text=f"R{slot} Stream: {media_feed_service.source_url(slot, 'Stream', self.mode_var.get())}",
+                text=f"R{slot}: {media_feed_service.feed_source_url(slot, self.mode_var.get())}",
                 bg=INPUT_BG,
                 fg=TEXT,
                 font=("Consolas", 9),
@@ -1047,7 +1047,7 @@ class RestreamApp(tk.Tk):
         for slot in running:
             try:
                 response = client.get_source_screenshot(
-                    self.media_source_name(layout, slot, "Stream"),
+                    self.media_feed_source_name(layout, slot),
                     "png",
                     64,
                     36,
@@ -1063,6 +1063,9 @@ class RestreamApp(tk.Tk):
         return results
 
     def start_media_selected_race(self) -> None:
+        if getattr(self, "_media_bulk_start_active", False):
+            messagebox.showinfo("Direct feeds starting", "Restream Control is already starting this race one runner at a time.")
+            return
         mod = self.launch_mod
         if not mod:
             messagebox.showerror("Media feeds", "launch_crosskeys.py could not be loaded.")
@@ -1072,6 +1075,11 @@ class RestreamApp(tk.Tk):
             messagebox.showerror("Media feeds blocked", "\n".join(errors))
             self.media_feed_status_var.set("Media feeds blocked: " + "; ".join(errors))
             return
+        try:
+            output_client = obs_crop_service.connect()
+            streaming, recording = self.obs_output_activity(output_client)
+        except Exception:
+            streaming = recording = False
         try:
             mode = int(self.mode_var.get())
             selected = self.get_selected_runners()
@@ -1084,13 +1092,21 @@ class RestreamApp(tk.Tk):
             mod.update_obs_text_files(mode, selected, comms)
             mod.save_last_setup(mode, selected, comms)
             app_state.save_current_race(mode, selected, comms)
-            self.repair_media_source_connections()
+            if not self.ensure_direct_media_layout_ready(mode, available_slots):
+                return
+            if not self.repair_media_source_connections(mode, available_slots):
+                return
             for slot in range(mode + 1, 5):
                 media_feed_service.stop_slot(slot)
             quality = self.media_feed_quality()
+            if streaming or recording:
+                self.start_media_slots_staggered(mode, selected, available_slots, quality, stream_errors)
+                return
             for slot in available_slots:
                 runner = selected[slot]
                 media_feed_service.start_slot(slot, runner.display_name, runner.twitch_name, quality, layout=mode)
+            launched_selected = {slot: selected[slot] for slot in available_slots}
+            self.apply_saved_crops_after_launch(mode, launched_selected)
             skipped = f" Skipped: {'; '.join(stream_errors)}" if stream_errors else ""
             self.media_feed_status_var.set(f"Started {len(available_slots)}/{mode} local OBS feed(s).{skipped}")
             self.log_status(self.media_feed_status_var.get())
@@ -1100,6 +1116,60 @@ class RestreamApp(tk.Tk):
         except Exception as exc:
             messagebox.showerror("Media feeds", str(exc))
             self.media_feed_status_var.set(f"Could not start media feeds: {exc}")
+
+    def start_media_slots_staggered(
+        self,
+        mode: int,
+        selected: dict[int, Any],
+        slots: list[int],
+        quality: str,
+        stream_errors: list[str],
+    ) -> None:
+        """Start runner decoders one at a time while OBS output is active."""
+        queue = list(slots)
+        failures = list(stream_errors)
+        launched: list[int] = []
+        token = object()
+        self._media_bulk_start_token = token
+        self._media_bulk_start_active = True
+
+        def finish() -> None:
+            if getattr(self, "_media_bulk_start_token", None) is not token:
+                return
+            self._media_bulk_start_active = False
+            skipped = f" Skipped: {'; '.join(failures)}" if failures else ""
+            status = f"Started {len(launched)}/{mode} local OBS feed(s) one at a time.{skipped}"
+            self.media_feed_status_var.set(status)
+            self.log_status(status)
+            self.refresh_media_feeds(check_obs_video=True)
+            if failures:
+                messagebox.showwarning("Some streams skipped", "Started available streams.\n\nSkipped:\n" + "\n".join(failures))
+
+        def start_next(index: int = 0) -> None:
+            if getattr(self, "_media_bulk_start_token", None) is not token:
+                return
+            if index >= len(queue):
+                finish()
+                return
+            slot = queue[index]
+            runner = selected[slot]
+            try:
+                self.apply_saved_crops_after_replace(slot, runner)
+                media_feed_service.start_slot(slot, runner.display_name, runner.twitch_name, quality, layout=mode)
+                launched.append(slot)
+                self.media_feed_status_var.set(
+                    f"Starting R{slot}: {runner.display_name} ({len(launched)}/{len(queue)}). "
+                    "Waiting before the next runner to protect the active OBS encoder..."
+                )
+                self.log_status(f"Staggered Direct startup launched R{slot}: {runner.display_name}.")
+            except Exception as exc:
+                failures.append(f"R{slot} {runner.display_name}: {exc}")
+            self.after(1500, lambda: self.refresh_media_feeds(check_obs_video=True))
+            self.after(5000, lambda: start_next(index + 1))
+
+        self.media_feed_status_var.set(f"OBS output is active. Starting {len(queue)} Direct feed(s) one at a time...")
+        self.log_status(self.media_feed_status_var.get())
+        start_next()
 
     def start_media_slot(self, slot: int) -> None:
         runner = self.media_runner_for_slot(slot)
@@ -1115,9 +1185,13 @@ class RestreamApp(tk.Tk):
             messagebox.showerror("Stream unavailable", "\n".join(stream_errors))
             return
         try:
-            self.repair_media_source_connections()
+            if not self.ensure_direct_media_layout_ready(int(self.mode_var.get()), available):
+                return
+            if not self.repair_media_source_connections(self.mode_var.get(), available):
+                return
             quality = self.media_feed_quality()
             media_feed_service.start_slot(slot, runner.display_name, runner.twitch_name, quality, layout=self.mode_var.get())
+            self.apply_saved_crops_after_replace(slot, runner)
             self.media_feed_status_var.set(f"Starting R{slot}: {runner.display_name}")
             self.log_status(self.media_feed_status_var.get())
             self.after(1500, lambda: self.refresh_media_feeds(check_obs_video=True))
@@ -1133,6 +1207,8 @@ class RestreamApp(tk.Tk):
     def stop_all_media_feeds(self) -> None:
         if not messagebox.askyesno("Stop local feeds", "Stop all Streamlink/FFmpeg local feeds?"):
             return
+        self._media_bulk_start_token = None
+        self._media_bulk_start_active = False
         media_feed_service.stop_all()
         self.media_feed_status_var.set("Stopped all local OBS feeds.")
         self.log_status(self.media_feed_status_var.get())
@@ -1143,6 +1219,11 @@ class RestreamApp(tk.Tk):
 
     def media_source_name(self, layout: str, slot: int, part: str) -> str:
         return f"{app_state.normalize_layout(layout)} R{slot} Media {part}"
+
+    def media_feed_source_name(self, layout: str, slot: int) -> str:
+        # Keep the existing Stream input name so OBS hotkeys and Stream Deck
+        # actions survive the v1 -> v2 migration.
+        return self.media_source_name(layout, slot, "Stream")
 
     def is_layout_media_target(self) -> bool:
         return self.layout_target_var.get() == "OBS Media Feeds"
@@ -1169,40 +1250,198 @@ class RestreamApp(tk.Tk):
         return {
             "input": input_url,
             "is_local_file": False,
+            # Direct OBS uses several views of every incoming runner feed.
+            # Let OBS use the GPU decoder when it is available so the final
+            # broadcast encoder has more CPU headroom.
+            "hw_decode": True,
             # 2P and 4P use different UDP address ranges, so sources can
             # remain open and keep playing through scene changes.
             "close_when_inactive": False,
             "restart_on_activate": False,
         }
 
-    def repair_media_source_connections(self) -> None:
-        """Keep existing Direct OBS sources from competing for UDP feeds."""
+    def obs_output_activity(self, client: Any) -> tuple[bool, bool]:
+        streaming = False
+        recording = False
+        try:
+            response = client.get_stream_status()
+            streaming = bool(self.obs_response_value(response, "outputActive", "output_active", default=False))
+        except Exception:
+            pass
+        try:
+            response = client.get_record_status()
+            recording = bool(self.obs_response_value(response, "outputActive", "output_active", default=False))
+        except Exception:
+            pass
+        return streaming, recording
+
+    def direct_layout_mutation_allowed(self, client: Any, action: str) -> bool:
+        streaming, recording = self.obs_output_activity(client)
+        if not streaming and not recording:
+            return True
+        active = " and ".join(name for enabled, name in ((streaming, "streaming"), (recording, "recording")) if enabled)
+        messagebox.showerror(
+            "Stop OBS output first",
+            f"Restream Control cannot {action} while OBS is {active}.\n\n"
+            "Stop the active OBS output to create or repair the layout, then resume the output. "
+            "Once the layout is ready, Direct feeds can be started while OBS is live.",
+        )
+        self.log_status(f"Blocked Direct OBS {action} while OBS is {active}.")
+        return False
+
+    def repair_media_source_connections(
+        self,
+        layout: str | int | None = None,
+        slots: list[int] | None = None,
+    ) -> bool:
+        """Repair only changed Direct OBS runner inputs to avoid decoder resets."""
         try:
             client = obs_crop_service.connect()
             source_names = set(self.scan_obs_snapshot(client)["all_sources"])
         except Exception as exc:
             self.log_status(f"Could not repair Direct OBS source settings: {exc}")
-            return
+            return False
+
+        pending: list[tuple[str, dict[str, Any]]] = []
+        target_layouts = [app_state.normalize_layout(layout)] if layout is not None else ["2P", "4P"]
+        for target_layout in target_layouts:
+            target_slots = slots or (list(range(1, 3)) if target_layout == "2P" else list(range(1, 5)))
+            for slot in target_slots:
+                source_name = self.media_feed_source_name(target_layout, slot)
+                if source_name not in source_names:
+                    continue
+                try:
+                    expected = self.media_source_settings(media_feed_service.feed_source_url(slot, target_layout))
+                    response = client.get_input_settings(source_name)
+                    current = self.obs_response_value(response, "inputSettings", "input_settings", default={})
+                    current = current if isinstance(current, dict) else {}
+                    if any(current.get(key) != value for key, value in expected.items()):
+                        pending.append((source_name, expected))
+                except Exception:
+                    pending.append((source_name, self.media_source_settings(media_feed_service.feed_source_url(slot, target_layout))))
+
+        if not pending:
+            return True
+        if not self.direct_layout_mutation_allowed(client, "change Direct media source settings"):
+            return False
 
         repaired = 0
-        for layout in ("2P", "4P"):
-            slots = range(1, 3) if layout == "2P" else range(1, 5)
-            for slot in slots:
-                for part in media_feed_service.MEDIA_PARTS:
-                    source_name = self.media_source_name(layout, slot, part)
-                    if source_name not in source_names:
-                        continue
-                    try:
-                        client.set_input_settings(
-                            source_name,
-                            self.media_source_settings(media_feed_service.source_url(slot, part, layout)),
-                            True,
-                        )
-                        repaired += 1
-                    except Exception:
-                        continue
+        for source_name, settings in pending:
+            try:
+                client.set_input_settings(source_name, settings, True)
+                repaired += 1
+            except Exception as exc:
+                self.log_status(f"Could not repair {source_name}: {exc}")
+                return False
         if repaired:
-            self.log_status(f"Repaired Direct OBS connection settings for {repaired} media source(s).")
+            self.log_status(f"Repaired Direct OBS connection settings for {repaired} runner feed(s).")
+        return True
+
+    def direct_media_layout_ready(self, layout: str | int, slots: list[int]) -> bool:
+        layout_name = app_state.normalize_layout(layout)
+        scene_name = self.media_scene_name(layout_name)
+        try:
+            client = obs_crop_service.connect()
+            source_names = set(self.scan_obs_snapshot(client)["all_sources"])
+            records = self.scene_item_records(client, scene_name)
+        except Exception:
+            return False
+        record_ids = {
+            (record["source_name"], int(record["scene_item_id"]))
+            for record in records
+        }
+        for slot in slots:
+            feed_name = self.media_feed_source_name(layout_name, slot)
+            if feed_name not in source_names:
+                return False
+            has_item = False
+            for part in media_feed_service.MEDIA_PARTS:
+                stored = obs_crop_service.media_item_location(self.media_source_name(layout_name, slot, part))
+                if stored and stored[0] == scene_name and (stored[2], stored[1]) in record_ids:
+                    has_item = True
+                    break
+            if not has_item:
+                return False
+        return True
+
+    def ensure_direct_media_layout_ready(self, layout: str | int, slots: list[int]) -> bool:
+        """Upgrade an existing Direct scene before a v2 worker starts."""
+        layout_name = app_state.normalize_layout(layout)
+        if self.direct_media_layout_ready(layout_name, slots):
+            return True
+
+        try:
+            client = obs_crop_service.connect()
+        except Exception as exc:
+            messagebox.showerror("OBS connection failed", str(exc))
+            return False
+        if not self.direct_layout_mutation_allowed(client, "create or upgrade the Direct OBS layout"):
+            return False
+
+        store = self.layout_designer_store()
+        layouts = store.get("layouts", {}) if isinstance(store, dict) else {}
+        saved = layouts.get(layout_name, {}) if isinstance(layouts, dict) else {}
+        if isinstance(saved, dict) and (saved.get("regions") or saved.get("background")):
+            self.log_status(f"Upgrading saved {layout_name} custom Direct layout to the single-feed architecture...")
+            self.apply_designer_layout_to_obs(
+                saved,
+                [layout_name],
+                save_first=False,
+                media_target=True,
+                confirm=False,
+            )
+        else:
+            messagebox.showinfo(
+                "Direct OBS layout update",
+                "This Direct OBS layout needs the lower-load single-feed update before streams can start.\n\n"
+                "Restream Control will now rebuild the included default layout. VLC scenes are not changed.",
+            )
+            self.create_media_obs_layouts([layout_name])
+
+        if self.direct_media_layout_ready(layout_name, slots):
+            return True
+        messagebox.showerror(
+            "Direct OBS layout not ready",
+            "The Direct OBS layout could not be upgraded. Open Custom Layout and apply it to Direct OBS, "
+            "or use Create 2P/4P OBS Layouts on the Direct OBS page, then try again.",
+        )
+        return False
+
+    def scene_item_records(self, client: Any, scene_name: str) -> list[dict[str, Any]]:
+        try:
+            response = client.get_scene_item_list(scene_name)
+            items = self.obs_response_value(response, "sceneItems", "scene_items", default=[])
+        except Exception:
+            return []
+        records: list[dict[str, Any]] = []
+        for item in items or []:
+            name = self.obs_response_value(item, "sourceName", "source_name", "name")
+            item_id = self.obs_response_value(item, "sceneItemId", "scene_item_id")
+            if name and item_id is not None:
+                records.append({"source_name": str(name), "scene_item_id": int(item_id)})
+        return records
+
+    def retire_legacy_media_inputs(self, client: Any, layout: str, source_names: set[str]) -> int:
+        """Remove app-created v1 per-crop inputs before provisioning v2."""
+        layout = app_state.normalize_layout(layout)
+        slots = range(1, 3) if layout == "2P" else range(1, 5)
+        legacy_names = {
+            self.media_source_name(layout, slot, part)
+            for slot in slots
+            for part in media_feed_service.MEDIA_PARTS
+            if part != "Stream"
+        }
+        removed = 0
+        for source_name in sorted(legacy_names & source_names):
+            try:
+                client.remove_input(source_name)
+                source_names.discard(source_name)
+                removed += 1
+            except Exception:
+                continue
+        if removed:
+            obs_crop_service.remove_media_item_locations(layout)
+        return removed
 
     def create_media_source_item(
         self,
@@ -1210,46 +1449,101 @@ class RestreamApp(tk.Tk):
         scene_name: str,
         source_name: str,
         source_names: set[str],
-        scene_items: dict[str, int],
-        input_url: str,
         muted: bool,
         template_item: dict[str, Any],
-    ) -> str:
-        item_id = scene_items.get(source_name)
+    ) -> tuple[int, str]:
+        match = re.match(r"^([24]P) R([1-4]) Media (Stream|Tracker|Timer|Facecam)$", source_name)
+        if not match:
+            raise RuntimeError(f"Invalid Direct OBS logical source name: {source_name}")
+        layout, slot_raw, _part = match.groups()
+        slot = int(slot_raw)
+        feed_source_name = self.media_feed_source_name(layout, slot)
+        input_url = media_feed_service.feed_source_url(slot, layout)
+
+        records = self.scene_item_records(client, scene_name)
+        feed_item_ids = {
+            int(record["scene_item_id"])
+            for record in records
+            if record["source_name"] == feed_source_name
+        }
+        stored = obs_crop_service.media_item_location(source_name)
+        item_id = None
+        if stored and stored[0] == scene_name and stored[2] == feed_source_name and stored[1] in feed_item_ids:
+            item_id = stored[1]
+
         created = False
-        if source_name not in source_names:
+        added = False
+        if feed_source_name not in source_names:
             response = client.create_input(
                 scene_name,
-                source_name,
+                feed_source_name,
                 "ffmpeg_source",
-                {
-                    **self.media_source_settings(input_url),
-                },
+                self.media_source_settings(input_url),
                 True,
             )
             item_id = self.get_scene_item_id_value(response)
-            source_names.add(source_name)
-            scene_items[source_name] = item_id
+            source_names.add(feed_source_name)
             created = True
-        elif item_id is None:
-            response = client.create_scene_item(scene_name, source_name, True)
-            item_id = self.get_scene_item_id_value(response)
-            scene_items[source_name] = item_id
         else:
             try:
                 client.set_input_settings(
-                    source_name,
+                    feed_source_name,
                     self.media_source_settings(input_url),
                     True,
                 )
             except Exception:
                 pass
+            if item_id is None:
+                mapped_items = obs_crop_service.load_media_item_map()
+                used_ids = {
+                    int(details.get("scene_item_id"))
+                    for details in mapped_items.values()
+                    if isinstance(details, dict)
+                    and details.get("scene_name") == scene_name
+                    and details.get("source_name") == feed_source_name
+                    and details.get("scene_item_id") is not None
+                }
+                available_ids = sorted(feed_item_ids - used_ids)
+                if available_ids:
+                    item_id = available_ids[0]
+                else:
+                    response = client.create_scene_item(scene_name, feed_source_name, True)
+                    item_id = self.get_scene_item_id_value(response)
+                    added = True
+
+        if item_id is None:
+            raise RuntimeError(f"OBS did not create a scene item for {source_name}")
         self.apply_template_scene_item(client, scene_name, source_name, int(item_id), template_item)
-        try:
-            client.set_input_mute(source_name, muted)
-        except Exception:
-            pass
-        return "CREATE" if created else "UPDATE"
+        obs_crop_service.save_media_item_location(source_name, scene_name, int(item_id), feed_source_name)
+        if created:
+            try:
+                client.set_input_mute(feed_source_name, bool(muted))
+            except Exception:
+                pass
+        return int(item_id), "CREATE" if created else ("ADD" if added else "UPDATE")
+
+    def apply_media_scene_item_order(
+        self,
+        client: Any,
+        scene_name: str,
+        ordered_names: list[str],
+        scene_items: dict[str, int],
+    ) -> list[str]:
+        lines: list[str] = []
+        seen_ids: set[int] = set()
+        for index, source_name in enumerate(ordered_names):
+            item_id = scene_items.get(source_name)
+            stored = obs_crop_service.media_item_location(source_name)
+            if stored and stored[0] == scene_name:
+                item_id = stored[1]
+            if item_id is None or item_id in seen_ids:
+                continue
+            seen_ids.add(item_id)
+            try:
+                client.set_scene_item_index(scene_name, item_id, index)
+            except Exception as exc:
+                lines.append(f"FAILED  layer order {source_name}: {exc}")
+        return lines
 
     def create_media_obs_layouts(
         self,
@@ -1261,8 +1555,8 @@ class RestreamApp(tk.Tk):
         message = (
             f"Create Direct OBS media scenes and default sources for {layout_names}?\n\n"
             "Creates Direct OBS media scenes without changing your VLC scenes. "
-            "Each runner gets Game, Tracker, and Timer media sources using the default template positions. "
-            "Only each Game source carries audio; Tracker and Timer are video-only."
+            "Each runner gets one decoded feed with independent Game, Tracker, and Timer scene items. "
+            "Legacy per-crop Direct inputs are replaced to prevent OBS decoder overload."
         )
         if not messagebox.askyesno("Create OBS Media Layouts", message):
             return
@@ -1275,6 +1569,8 @@ class RestreamApp(tk.Tk):
             supported_kinds = self.supported_obs_input_kinds(client)
         except Exception as exc:
             messagebox.showerror("OBS Media Layouts", str(exc))
+            return
+        if not self.direct_layout_mutation_allowed(client, "create or update Direct OBS layouts"):
             return
 
         lines = ["Create Direct OBS Media Layouts", ""]
@@ -1301,6 +1597,9 @@ class RestreamApp(tk.Tk):
             else:
                 lines.append(f"UPDATE  {scene_name}")
 
+            retired = self.retire_legacy_media_inputs(client, layout, source_names)
+            if retired:
+                lines.append(f"MIGRATE removed {retired} legacy per-crop input(s)")
             scene_items = self.scene_item_map(client, scene_name)
             ordered_names: list[str] = []
             for item in self.template_scene_items(template, f"{layout} Restream"):
@@ -1314,14 +1613,12 @@ class RestreamApp(tk.Tk):
                     source_name = self.media_source_name(layout, slot, part)
                     ordered_names.append(source_name)
                     try:
-                        action = self.create_media_source_item(
+                        _item_id, action = self.create_media_source_item(
                             client,
                             scene_name,
                             source_name,
                             source_names,
-                            scene_items,
-                            media_feed_service.source_url(slot, part, layout),
-                            muted=part != "Stream",
+                            muted=False,
                             template_item=item,
                         )
                         if action == "CREATE":
@@ -1372,7 +1669,7 @@ class RestreamApp(tk.Tk):
                     failed.append(f"{audio_source['name']}: {exc}")
                     lines.append(f"FAILED  {audio_source['name']}: {exc}")
             scene_items = self.scene_item_map(client, scene_name)
-            order_failures = self.apply_template_order(client, scene_name, ordered_names, scene_items)
+            order_failures = self.apply_media_scene_item_order(client, scene_name, ordered_names, scene_items)
             if order_failures:
                 failed.extend(order_failures)
                 lines.extend(order_failures)
@@ -1584,7 +1881,7 @@ class RestreamApp(tk.Tk):
         direct_obs = playback_engine_key(self.playback_engine_var.get()) == "OBS Media Feeds"
         if direct_obs:
             self.audio_playback_note_var.set(
-                "Direct OBS sends runner audio through each Media Stream source. Tracker, Timer, and Facecam media sources are muted automatically. Use OBS Audio Mixer to choose what goes live."
+                "Direct OBS creates one audio mixer source per runner feed. Stream, Tracker, Timer, and Facecam scene items share that audio, so there are no duplicate mixer channels."
             )
             self.audio_mapper_note_var.set(
                 "VLC Audio Mapper is not used for Direct OBS. Select Standard VLC on Setup to map VLC window audio."
@@ -2537,7 +2834,7 @@ class RestreamApp(tk.Tk):
             media_target=self.is_layout_media_target(),
         )
 
-    def desired_designer_scene_sources(self, data: dict[str, Any], layout: str) -> set[str]:
+    def desired_designer_scene_sources(self, data: dict[str, Any], layout: str, media_target: bool = False) -> set[str]:
         layout = app_state.normalize_layout(layout)
         source_map = app_state.load_config().get("obs_source_map", {})
         if not isinstance(source_map, dict):
@@ -2553,7 +2850,7 @@ class RestreamApp(tk.Tk):
             region = self.normalize_layout_region(raw_region)
             if app_state.normalize_layout(region.get("layout", data_layout)) != layout:
                 continue
-            source = self.designer_source_name_for_region(layout, region)
+            source = self.designer_source_name_for_region(layout, region, media_target)
             if source:
                 desired.add(str(source_map.get(source, source)))
         background_path = str(data.get("background", "") or "")
@@ -2572,6 +2869,10 @@ class RestreamApp(tk.Tk):
                 f"{layout} R{slot} Tracker",
                 f"{layout} R{slot} Timer",
                 f"{layout} R{slot} Facecam",
+                self.media_source_name(layout, slot, "Stream"),
+                self.media_source_name(layout, slot, "Tracker"),
+                self.media_source_name(layout, slot, "Timer"),
+                self.media_source_name(layout, slot, "Facecam"),
                 f"Runner {slot} Name",
             })
         candidates.update({
@@ -2587,13 +2888,14 @@ class RestreamApp(tk.Tk):
     def remove_unused_layout_sources(self) -> None:
         data = self.current_layout_designer_data()
         layout = app_state.normalize_layout(self.layout_mode_var.get())
-        desired = self.desired_designer_scene_sources(data, layout)
+        media_target = self.is_layout_media_target()
+        desired = self.desired_designer_scene_sources(data, layout, media_target)
         if not desired and not str(data.get("background", "") or ""):
             messagebox.showinfo("Remove unused sources", "Draw at least one layout box or load a layout image first. Cleanup compares OBS against the current layout.")
             return
         if not self.save_obs_settings():
             return
-        scene_name = f"{layout} Restream"
+        scene_name = self.designer_scene_name(layout, media_target)
         try:
             client = obs_crop_service.connect()
             scene_items = self.scene_item_map(client, scene_name)
@@ -2607,14 +2909,35 @@ class RestreamApp(tk.Tk):
 
         candidates = self.cleanup_candidate_layout_sources(layout)
         removable = sorted(name for name in scene_items if name in candidates and name not in desired)
-        if not removable:
+        removable_media: list[tuple[str, int]] = []
+        if media_target:
+            media_logical_names = {
+                self.media_source_name(layout, slot, part)
+                for slot in ([1, 2] if layout == "2P" else [1, 2, 3, 4])
+                for part in media_feed_service.MEDIA_PARTS
+            }
+            # Repeated Direct items all share the Media Stream input name.
+            # Remove those by their persisted logical item IDs below, never
+            # through scene_item_map's one-name/one-ID view.
+            removable = [name for name in removable if name not in media_logical_names]
+            for logical_name, details in obs_crop_service.load_media_item_map().items():
+                if (
+                    logical_name in candidates
+                    and logical_name not in desired
+                    and isinstance(details, dict)
+                    and details.get("scene_name") == scene_name
+                    and details.get("scene_item_id") is not None
+                ):
+                    removable_media.append((logical_name, int(details["scene_item_id"])))
+        if not removable and not removable_media:
             self.layout_status_var.set("No unused Restream Control scene items found.")
             messagebox.showinfo("Remove unused sources", "No unused Restream Control scene items found for the current layout.")
             return
 
-        preview = "\n".join(f"- {name}" for name in removable[:25])
-        if len(removable) > 25:
-            preview += f"\n...and {len(removable) - 25} more"
+        removable_names = removable + [name for name, _item_id in removable_media]
+        preview = "\n".join(f"- {name}" for name in removable_names[:25])
+        if len(removable_names) > 25:
+            preview += f"\n...and {len(removable_names) - 25} more"
         message = (
             f"Remove these unused Restream Control scene items from {scene_name}?\n\n"
             f"{preview}\n\n"
@@ -2634,6 +2957,16 @@ class RestreamApp(tk.Tk):
                 removed += 1
             except Exception as exc:
                 failed.append(f"{source_name}: {exc}")
+        removed_media_names: set[str] = set()
+        for logical_name, item_id in removable_media:
+            try:
+                client.remove_scene_item(scene_name, item_id)
+                removed += 1
+                removed_media_names.add(logical_name)
+            except Exception as exc:
+                failed.append(f"{logical_name}: {exc}")
+        if removed_media_names:
+            obs_crop_service.remove_media_item_locations(layout, removed_media_names)
         if failed:
             messagebox.showwarning("Remove unused sources", "Some sources could not be removed:\n\n" + "\n".join(failed[:8]))
         self.layout_status_var.set(f"Removed {removed} unused scene item(s) from {scene_name}.")
@@ -2946,6 +3279,8 @@ class RestreamApp(tk.Tk):
             self.layout_status_var.set(f"OBS apply failed: {exc}")
             self.log_status(f"OBS Layout apply failed: {exc}")
             return
+        if media_target and not self.direct_layout_mutation_allowed(client, "apply a custom Direct OBS layout"):
+            return
 
         source_map = app_state.load_config().get("obs_source_map", {})
         if not isinstance(source_map, dict):
@@ -2978,6 +3313,10 @@ class RestreamApp(tk.Tk):
                     lines.append("")
                     continue
 
+            if media_target:
+                retired = self.retire_legacy_media_inputs(client, layout, source_names)
+                if retired:
+                    lines.append(f"MIGRATE removed {retired} legacy per-crop input(s)")
             scene_items = self.scene_item_map(client, scene_name)
             background_line, background_created = self.apply_designer_background_to_obs(
                 client,
@@ -3002,7 +3341,11 @@ class RestreamApp(tk.Tk):
                 lines.append("SKIP    no designer regions saved for this layout")
                 scene_items = self.scene_item_map(client, scene_name)
                 ordered_names = self.mapped_designer_layer_order_names(self.designer_layer_order_names(layout, [], media_target), source_map)
-                order_failures = self.apply_template_order(client, scene_name, ordered_names, scene_items)
+                order_failures = (
+                    self.apply_media_scene_item_order(client, scene_name, ordered_names, scene_items)
+                    if media_target
+                    else self.apply_template_order(client, scene_name, ordered_names, scene_items)
+                )
                 if order_failures:
                     failed += len(order_failures)
                     lines.extend(order_failures)
@@ -3023,17 +3366,14 @@ class RestreamApp(tk.Tk):
                     if media_target and self.media_part_for_region(region):
                         slot, part = self.media_part_for_region(region) or (0, "")
                         template_item = self.media_template_item(template, layout, slot, part)
-                        create_status = self.create_media_source_item(
+                        item_id, create_status = self.create_media_source_item(
                             client,
                             scene_name,
                             source_name,
                             source_names,
-                            scene_items,
-                            media_feed_service.source_url(slot, part, layout),
-                            muted=True,
+                            muted=False,
                             template_item=template_item,
                         )
-                        item_id = self.scene_item_map(client, scene_name).get(source_name)
                     else:
                         item_id, create_status = self.create_designer_source_if_missing(
                             client,
@@ -3069,7 +3409,11 @@ class RestreamApp(tk.Tk):
                     lines.append(f"FAILED  {source_name}: {exc}")
             scene_items = self.scene_item_map(client, scene_name)
             ordered_names = self.mapped_designer_layer_order_names(self.designer_layer_order_names(layout, layout_regions, media_target), source_map)
-            order_failures = self.apply_template_order(client, scene_name, ordered_names, scene_items)
+            order_failures = (
+                self.apply_media_scene_item_order(client, scene_name, ordered_names, scene_items)
+                if media_target
+                else self.apply_template_order(client, scene_name, ordered_names, scene_items)
+            )
             if order_failures:
                 failed += len(order_failures)
                 lines.extend(order_failures)
@@ -3812,6 +4156,11 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             )
             if not messagebox.askyesno(f"{action_word.title()} runner", action_detail):
                 return
+            if direct_obs:
+                if not self.ensure_direct_media_layout_ready(int(self.mode_var.get()), [slot]):
+                    return
+                if not self.repair_media_source_connections(self.mode_var.get(), [slot]):
+                    return
             if not direct_obs:
                 mod.close_runner_window(slot)
             mod.write_text_file(mod.OBS_TEXT_DIR / f"runner{slot}.txt", runner.display_name)
@@ -4422,13 +4771,12 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             crop_targets = [name for name, *_rest in obs_crop_service.TARGETS_4P]
         if self.builder_uses_media_feeds():
             media_sources = [
-                self.media_source_name(layout, slot, part)
+                self.media_feed_source_name(layout, slot)
                 for slot in runner_slots
-                for part in ("Stream", "Tracker", "Timer")
             ]
             return {
                 "Scenes": [self.media_scene_name(layout)],
-                "Media sources": media_sources,
+                "Runner feed sources": media_sources,
                 "Text sources": [f"Runner {slot} Name" for slot in runner_slots] + ["Comms Name"],
                 "Background sources": [f"Background {layout}", f"Background {layout} Outlines", "Background Image [placeholder]"],
                 "Audio sources": ["Discord Audio", "Mic Audio"],
@@ -5600,6 +5948,7 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
         applied = 0
         missing = []
         applied_map = []
+        direct_obs = playback_engine_key(self.playback_engine_var.get()) == "OBS Media Feeds"
         for slot_raw, runner in sorted(runners.items(), key=lambda item: int(item[0])):
             if not isinstance(runner, dict):
                 continue
@@ -5609,8 +5958,17 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
                 missing.append(f"R{slot_raw} {display}: missing Twitch name")
                 continue
             for part in self.crop_parts_for_layout(layout):
-                source = f"{layout} R{slot_raw} {part}"
-                preset = app_state.get_crop_preset(twitch, part, layout)
+                source = (
+                    self.media_source_name(layout, int(slot_raw), part)
+                    if direct_obs
+                    else f"{layout} R{slot_raw} {part}"
+                )
+                # A custom Direct layout may intentionally omit a part, such
+                # as a runner timer. Do not treat that as a failed saved crop.
+                if direct_obs and source not in locations:
+                    continue
+                preset_part = f"Media {part}" if direct_obs else part
+                preset = app_state.get_crop_preset(twitch, preset_part, layout)
                 if not preset:
                     missing.append(f"R{slot_raw} {display}: {part}")
                     continue

@@ -31,7 +31,9 @@ Open `Setup Wizard` after starting the app. It checks the tools required for the
 Choose one method on `Setup`. Cropping, Sync, Audio, and Custom Layout follow that choice automatically.
 
 - `Standard: VLC Windows`: the established workflow. Each runner opens in a VLC window.
-- `Direct to OBS: Media Feeds`: no VLC windows. Streamlink and FFmpeg send feeds directly to OBS. On first use, open `Direct OBS` and click `Create 2P/4P OBS Layouts`. Its `Direct quality` control applies when a feed is started or restarted.
+- `Direct to OBS: Media Feeds`: no VLC windows. Streamlink and FFmpeg send one feed per runner directly to OBS. OBS decodes each runner once and reuses that input for independently cropped Game, Tracker, Timer, and Facecam items. On first use, open `Direct OBS` and click `Create 2P/4P OBS Layouts`. Its `Direct quality` control applies when a feed is started or restarted.
+
+Direct feeds may be started before or after the OBS output. When OBS is already streaming or recording, `Start Selected Race` automatically starts runners one at a time to avoid initializing every decoder at once. Layout creation and source-setting repairs still require the OBS output to be stopped. Individual runner restart/replace remains available during a live race.
 
 ## Main Workflow
 

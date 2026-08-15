@@ -145,6 +145,7 @@ class CropPanel(tk.Frame):
         self.instructions_var = tk.StringVar()
         self.part_status_vars = {}
         self.part_rows = {}
+        self.part_apply_buttons = {}
         self.show_obs_settings_var = tk.BooleanVar(value=False)
 
         self.config_data = load_config()
@@ -201,6 +202,7 @@ class CropPanel(tk.Frame):
         ttk.Label(topbar, text="Playback:").pack(side=tk.LEFT, padx=(6, 4))
         ttk.Label(topbar, textvariable=self.capture_playback_var).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(topbar, textvariable=self.screenshot_button_text, command=self.capture_and_load_selected_slot).pack(side=tk.LEFT, padx=(6,0))
+        ttk.Button(topbar, text="Refresh OBS Layout", command=self.refresh_obs_layout).pack(side=tk.LEFT, padx=(6, 0))
         ttk.Button(topbar, text="Delete Current", command=self.delete_current_screenshot).pack(side=tk.LEFT, padx=(6,0))
         ttk.Button(topbar, text="Clear Screenshot Folder", command=self.clear_screenshot_folder).pack(side=tk.LEFT, padx=(6,0))
         ttk.Button(topbar, text="Reapply This Runner", command=self.apply_all_runner_crops).pack(side=tk.LEFT, padx=(6,0))
@@ -235,7 +237,9 @@ class CropPanel(tk.Frame):
             row.pack(fill=tk.X, padx=6, pady=3)
             self.part_rows[part] = row
             ttk.Label(row, text=label, width=8).pack(side=tk.LEFT)
-            ttk.Button(row, text="Apply", command=lambda p=part: self.save_apply_runner_part_crop(p)).pack(side=tk.LEFT, padx=(0, 5))
+            button = ttk.Button(row, text="Apply", command=lambda p=part: self.save_apply_runner_part_crop(p))
+            button.pack(side=tk.LEFT, padx=(0, 5))
+            self.part_apply_buttons[part] = button
             var = tk.StringVar(value="no current runner")
             self.part_status_vars[part] = var
             ttk.Label(row, textvariable=var).pack(side=tk.LEFT)
@@ -336,8 +340,22 @@ class CropPanel(tk.Frame):
         found = sorted(self.source_locations.keys())
         if found and self.target_var.get() not in found:
             self.target_var.set(found[0])
+        self.update_part_statuses()
         if show_message:
             messagebox.showinfo("Sources refreshed", f"Found {len(found)} crop targets in OBS.")
+
+    def refresh_obs_layout(self):
+        """Reload current OBS crop items after a custom layout change."""
+        if not self.client or not self.connected:
+            self.connect_to_obs()
+        if not self.client or not self.connected:
+            return
+        self.refresh_current_race()
+        self.refresh_sources(show_message=False)
+        self.select_runner_target(update_status=False)
+        self.refresh_memory_status()
+        self.update_part_statuses()
+        self.set_status("OBS crop layout refreshed", ok=True)
 
     def open_image(self):
         path = filedialog.askopenfilename(title="Open screenshot", filetypes=[("Images", "*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif"), ("All files", "*.*")])
@@ -506,7 +524,9 @@ class CropPanel(tk.Frame):
         transform = self.client.get_scene_item_transform(container_name, item_id).scene_item_transform
         width = max(8, int(transform.get("sourceWidth") or 1280))
         height = max(8, int(transform.get("sourceHeight") or 720))
-        response = self.client.get_source_screenshot(source_name, "png", width, height, 90)
+        stored = obs_crop_service.media_item_location(source_name)
+        screenshot_source = stored[2] if stored and stored[2] else source_name
+        response = self.client.get_source_screenshot(screenshot_source, "png", width, height, 90)
         image_data = getattr(response, "image_data", "")
         if not image_data:
             raise RuntimeError(f"OBS returned no image data for {source_name}.")
@@ -763,11 +783,22 @@ class CropPanel(tk.Frame):
         if not runner:
             for part, var in self.part_status_vars.items():
                 var.set("no current runner")
+                button = self.part_apply_buttons.get(part)
+                if button:
+                    button.state(["disabled"])
             return
         twitch = (runner.get("twitch_name") or "").strip()
         display = runner.get("display_name") or twitch or "runner"
         layout = self.race_mode_label()
         for part, var in self.part_status_vars.items():
+            source = self.source_for_runner_part(part)
+            available = not self.is_media_feed_mode() or bool(source and source in self.source_locations)
+            button = self.part_apply_buttons.get(part)
+            if button:
+                button.state(["!disabled"] if available else ["disabled"])
+            if not available:
+                var.set("not used in this custom layout")
+                continue
             preset = app_state.get_crop_preset(twitch, self.preset_part_name(part), layout) if twitch else None
             if preset:
                 var.set(f"saved for {display} ({layout})")
@@ -785,7 +816,14 @@ class CropPanel(tk.Frame):
 
     def save_apply_runner_part_crop(self, part):
         self.set_runner_part(part)
-        self.apply_to_source(self.target_var.get())
+        source = self.target_var.get()
+        if self.is_media_feed_mode() and source not in self.source_locations:
+            messagebox.showinfo(
+                "Part not in layout",
+                f"{self.display_part_label(part)} is not used for this runner in the current custom layout.",
+            )
+            return
+        self.apply_to_source(source)
         self.update_part_statuses()
 
     def load_selected_runner_crop(self):
@@ -825,6 +863,8 @@ class CropPanel(tk.Frame):
         layout = self.race_mode_label()
         for part in self.crop_parts_for_current_layout():
             source = self.source_for_runner_part(part)
+            if self.is_media_feed_mode() and source not in self.source_locations:
+                continue
             preset = app_state.get_crop_preset(twitch, self.preset_part_name(part), layout)
             if not source or not preset:
                 missing.append(part)
@@ -869,6 +909,8 @@ class CropPanel(tk.Frame):
                 continue
             for part in self.crop_parts_for_current_layout():
                 source = self.source_name_for_slot_part(slot, part)
+                if self.is_media_feed_mode() and source not in self.source_locations:
+                    continue
                 preset = app_state.get_crop_preset(twitch, self.preset_part_name(part), layout)
                 if not preset:
                     missing.append(f"R{slot} {display}: {self.display_part_label(part)}")

@@ -35,18 +35,13 @@ def port_base(layout: str | int | None = None) -> int:
     return value + (100 if normalize_layout(layout) == "2P" else 0)
 
 
-# Facecam is not a physical camera in media-feed mode. It is another
-# independently cropped copy of the same runner feed for custom layouts.
+# Facecam is not a physical camera in media-feed mode. It is another cropped
+# scene-item reference to the same runner feed in custom layouts.
 MEDIA_PARTS = ("Stream", "Tracker", "Timer", "Facecam")
 
 
 def port_for_slot(slot: int, part: str = "Stream", layout: str | int | None = None) -> int:
-    """Give each cropable part its own local UDP output.
-
-    A normal UDP feed can only be consumed reliably by one OBS Media Source.
-    FFmpeg therefore sends three identical feeds per runner: Stream has audio,
-    Tracker and Timer are muted inside OBS.
-    """
+    """Return the legacy-compatible port assigned to a runner crop part."""
     normalized_part = str(part).title()
     if normalized_part == "Facecam":
         # Keep the original Stream/Tracker/Timer addresses stable so an app
@@ -61,6 +56,11 @@ def port_for_slot(slot: int, part: str = "Stream", layout: str | int | None = No
 
 def source_url(slot: int, part: str = "Stream", layout: str | int | None = None) -> str:
     return f"udp://127.0.0.1:{port_for_slot(slot, part, layout)}?pkt_size=1316"
+
+
+def feed_source_url(slot: int, layout: str | int | None = None) -> str:
+    """Return the single UDP feed OBS should decode for this runner."""
+    return source_url(slot, "Stream", layout)
 
 
 def state_path(slot: int) -> Path:
@@ -82,8 +82,13 @@ def write_state(slot: int, **updates: Any) -> None:
     layout = normalize_layout(existing.get("layout"))
     existing["slot"] = int(slot)
     existing["layout"] = layout
-    existing["ports"] = {part.lower(): port_for_slot(slot, part, layout) for part in MEDIA_PARTS}
-    existing["source_urls"] = {part.lower(): source_url(slot, part, layout) for part in MEDIA_PARTS}
+    feed_url = feed_source_url(slot, layout)
+    existing["port"] = port_for_slot(slot, "Stream", layout)
+    existing["source_url"] = feed_url
+    # Keep these compatibility fields readable by older UI builds. In v2 all
+    # logical crop parts point at one OBS input rather than separate decoders.
+    existing["ports"] = {part.lower(): existing["port"] for part in MEDIA_PARTS}
+    existing["source_urls"] = {part.lower(): feed_url for part in MEDIA_PARTS}
     existing["updated_at"] = datetime.now().isoformat(timespec="seconds")
     app_state.save_json(state_path(slot), existing)
 
@@ -285,20 +290,12 @@ def worker_main(argv: list[str] | None = None) -> int:
         "ffmpeg", "-hide_banner", "-loglevel", "warning",
         "-fflags", "nobuffer", "-flags", "low_delay",
         "-i", "pipe:0",
-        # The main Stream output carries video and audio. Tracker and Timer
-        # only need video, which keeps their sources out of OBS's audio mixer.
+        # OBS decodes this runner once. Stream, Tracker, Timer, and Facecam are
+        # separate scene-item references to this one input, so transforms and
+        # crops remain independent without multiplying decoder work.
         "-map", "0:v?", "-map", "0:a?",
         "-c", "copy", "-muxdelay", "0", "-muxpreload", "0",
-        *output_args(source_url(slot, "Stream", layout)),
-        "-map", "0:v?", "-an",
-        "-c", "copy", "-muxdelay", "0", "-muxpreload", "0",
-        *output_args(source_url(slot, "Tracker", layout)),
-        "-map", "0:v?", "-an",
-        "-c", "copy", "-muxdelay", "0", "-muxpreload", "0",
-        *output_args(source_url(slot, "Timer", layout)),
-        "-map", "0:v?", "-an",
-        "-c", "copy", "-muxdelay", "0", "-muxpreload", "0",
-        *output_args(source_url(slot, "Facecam", layout)),
+        *output_args(feed_source_url(slot, layout)),
     ]
     child_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
     child_startupinfo = None

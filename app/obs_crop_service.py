@@ -36,8 +36,57 @@ TARGETS_2P = [
 BASE_TARGETS = TARGETS_4P + TARGETS_2P
 ALL_TARGETS = [t[0] for t in BASE_TARGETS]
 KNOWN_GROUPS = ["4P R1", "4P R2", "4P R3", "4P R4", "2P R1", "2P R2"]
-KNOWN_SCENES = ["4P Restream", "2P Restream"]
+KNOWN_SCENES = ["4P Restream", "2P Restream", "4P Media Restream", "2P Media Restream"]
 LAYOUT_DESIGN_FILE = app_state.STATE_DIR / "layout_designer.json"
+MEDIA_ITEM_MAP_FILE = app_state.STATE_DIR / "media_scene_items.json"
+
+
+def load_media_item_map() -> dict[str, dict[str, Any]]:
+    data = app_state.load_json(MEDIA_ITEM_MAP_FILE, {})
+    items = data.get("items", {}) if isinstance(data, dict) else {}
+    return items if isinstance(items, dict) else {}
+
+
+def save_media_item_location(
+    logical_name: str,
+    scene_name: str,
+    scene_item_id: int,
+    source_name: str,
+) -> None:
+    items = load_media_item_map()
+    items[str(logical_name)] = {
+        "scene_name": str(scene_name),
+        "scene_item_id": int(scene_item_id),
+        "source_name": str(source_name),
+    }
+    app_state.save_json(MEDIA_ITEM_MAP_FILE, {"version": 2, "items": items})
+
+
+def remove_media_item_locations(layout: str | int, logical_names: set[str] | None = None) -> None:
+    normalized = app_state.normalize_layout(layout)
+    items = load_media_item_map()
+    retained: dict[str, dict[str, Any]] = {}
+    for logical_name, details in items.items():
+        remove = str(logical_name).startswith(f"{normalized} R")
+        if logical_names is not None:
+            remove = logical_name in logical_names
+        if not remove:
+            retained[logical_name] = details
+    app_state.save_json(MEDIA_ITEM_MAP_FILE, {"version": 2, "items": retained})
+
+
+def media_item_location(logical_name: str) -> tuple[str, int, str] | None:
+    details = load_media_item_map().get(str(logical_name))
+    if not isinstance(details, dict):
+        return None
+    try:
+        return (
+            str(details["scene_name"]),
+            int(details["scene_item_id"]),
+            str(details.get("source_name", "")),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def connect():
@@ -106,7 +155,9 @@ def all_target_names() -> list[str]:
 
 def find_crop_targets(client: Any) -> dict[str, tuple[str, int]]:
     locations: dict[str, tuple[str, int]] = {}
+    valid_items: set[tuple[str, int]] = set()
     target_names = set(all_target_names())
+    media_items = load_media_item_map()
     source_map = app_state.load_config().get("obs_source_map", {})
     if not isinstance(source_map, dict):
         source_map = {}
@@ -117,6 +168,7 @@ def find_crop_targets(client: Any) -> dict[str, tuple[str, int]]:
         item_id = item.get("sceneItemId") if isinstance(item, dict) else getattr(item, "scene_item_id", None)
         if not name or item_id is None:
             return
+        valid_items.add((str(container_name), int(item_id)))
         if name in target_names:
             locations[name] = (container_name, item_id)
         logical_name = actual_to_logical.get(name)
@@ -132,6 +184,9 @@ def find_crop_targets(client: Any) -> dict[str, tuple[str, int]]:
         pass
 
     scenes = set(KNOWN_SCENES)
+    for details in media_items.values():
+        if isinstance(details, dict) and details.get("scene_name"):
+            scenes.add(str(details["scene_name"]))
     try:
         resp = client.get_scene_list()
         for scene in getattr(resp, "scenes", []):
@@ -156,6 +211,19 @@ def find_crop_targets(client: Any) -> dict[str, tuple[str, int]]:
                 add_item(scene, item)
         except Exception:
             pass
+
+    # Direct OBS v2 uses one input per runner and several references to it in
+    # the scene. Their source names are identical, so the persisted logical
+    # name -> scene-item ID map is what distinguishes Game/Tracker/Timer/etc.
+    for logical_name, details in media_items.items():
+        if not isinstance(details, dict):
+            continue
+        try:
+            location = (str(details["scene_name"]), int(details["scene_item_id"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if location in valid_items:
+            locations[str(logical_name)] = location
 
     return locations
 

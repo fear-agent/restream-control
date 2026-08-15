@@ -82,11 +82,13 @@ Use one of these:
 
 Most new users should start with `Template Setup`.
 
-For `OBS Media Feeds`, open `Direct OBS` once afterward and click `Create 2P/4P OBS Layouts`. The created Game source carries each runner's audio; Tracker, Timer, and Facecam sources are video-only. `Direct quality` defaults to the preferred quality order and applies after starting or restarting a feed.
+For `OBS Media Feeds`, Template Setup creates one decoded OBS input per runner and reuses it for independently cropped Game, Tracker, and Timer scene items. Custom layouts can add Facecam as another crop of that same input. This keeps only one audio mixer source and one video decoder per runner. `Direct quality` defaults to the preferred quality order and applies after starting or restarting a feed.
+
+When upgrading an older Direct OBS layout, apply the saved Custom Layout again or use `Create 2P/4P OBS Layouts`. Restream Control replaces its older per-crop inputs so OBS is not decoding the same runner several times.
 
 ## 6. Audio
 
-This section applies to `VLC Windows` playback. `OBS Media Feeds` includes runner audio in each Game source, so it does not need VLC audio mapping.
+This section applies to `VLC Windows` playback. `OBS Media Feeds` includes runner audio in each runner feed, so it does not need VLC audio mapping.
 
 Open `Audio` after runner VLC windows are launched.
 
