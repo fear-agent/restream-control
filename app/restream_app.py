@@ -500,6 +500,9 @@ class RestreamApp(tk.Tk):
         self.edit_twitch_var = tk.StringVar()
         self.edit_aliases_var = tk.StringVar()
         self.source_map_text: Optional[tk.Text] = None
+        self.source_mapping_body: Optional[tk.Frame] = None
+        self.source_mapping_toggle: Optional[tk.Button] = None
+        self.source_mapping_visible = False
         self.audio_status_var = tk.StringVar(value="Click Refresh Audio to read OBS audio inputs.")
         self.audio_playback_note_var = tk.StringVar()
         self.audio_mapper_note_var = tk.StringVar()
@@ -520,6 +523,7 @@ class RestreamApp(tk.Tk):
         self.wizard_status_var = tk.StringVar(value="Start here on a new machine, or use this later to re-check setup.")
         self.wizard_checks_frame: Optional[tk.Frame] = None
         self.wizard_runtime_var = tk.StringVar()
+        self.wizard_audio_note_var = tk.StringVar()
         self.layout_mode_var = tk.StringVar(value="4P")
         self.layout_target_var = tk.StringVar(value=playback_engine_key(self.playback_engine_var.get()))
         self.layout_playback_var = tk.StringVar(value=playback_display_name(self.playback_engine_var.get()))
@@ -529,6 +533,8 @@ class RestreamApp(tk.Tk):
         self.layout_copy_to_var = tk.StringVar(value="R2")
         self.layout_copy_part_var = tk.StringVar(value="All")
         self.layout_status_var = tk.StringVar(value="Draw a region on the canvas, then save the layout.")
+        self.layout_dirty_var = tk.StringVar(value="Saved")
+        self.layout_dirty_label: Optional[tk.Label] = None
         self.layout_regions: list[dict[str, Any]] = []
         self.layout_selected_id: Optional[str] = None
         self.layout_selected_ids: set[str] = set()
@@ -889,10 +895,10 @@ class RestreamApp(tk.Tk):
             return
         if playback_engine_key(self.playback_engine_var.get()) == "OBS Media Feeds":
             button.configure(text="Start Direct OBS Feeds")
-            self.playback_help_var.set("No runner windows. Sends runner video and audio directly to OBS through Streamlink and FFmpeg.")
+            self.playback_help_var.set("No VLC windows. Sends each runner's video and audio directly to OBS through Streamlink and FFmpeg.")
         else:
             button.configure(text="Launch VLC Windows")
-            self.playback_help_var.set("Established workflow. Opens one VLC window per runner for video, audio, cropping, and sync.")
+            self.playback_help_var.set("Opens one VLC window per runner for video, audio, cropping, and sync.")
 
     def _build_media_feeds(self, parent: tk.Frame) -> None:
         feeds = self.panel(parent, "Direct OBS")
@@ -912,9 +918,7 @@ class RestreamApp(tk.Tk):
 
         actions = tk.Frame(feeds, bg=PANEL)
         actions.pack(fill="x", padx=16, pady=(0, 10))
-        self.button(actions, "Start Selected Race", self.start_media_selected_race, primary=True).pack(side="left", padx=(0, 8))
-        self.button(actions, "Create 2P/4P OBS Layouts", self.create_media_obs_layouts, compact=True).pack(side="left", padx=8)
-        self.button(actions, "Stop All Feeds", self.stop_all_media_feeds, danger=True).pack(side="left", padx=8)
+        self.button(actions, "Stop All Feeds", self.stop_all_media_feeds, danger=True).pack(side="left", padx=(0, 8))
         self.button(actions, "Refresh", lambda: self.refresh_media_feeds(check_obs_video=True)).pack(side="left", padx=8)
         tk.Label(actions, text="Direct quality", bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(12, 5))
         quality = ttk.Combobox(
@@ -953,6 +957,18 @@ class RestreamApp(tk.Tk):
 
         self.media_feed_rows_frame = tk.Frame(feeds, bg=PANEL)
         self.media_feed_rows_frame.pack(fill="x", padx=16, pady=(0, 14))
+
+        setup = tk.Frame(feeds, bg=PANEL_2)
+        setup.pack(fill="x", padx=16, pady=(0, 14))
+        tk.Label(setup, text="First-time Direct OBS setup", bg=PANEL_2, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(12, 10), pady=9)
+        tk.Label(
+            setup,
+            text="Create the 2P and 4P Direct OBS scenes and feed sources if you are not using Template Setup.",
+            bg=PANEL_2,
+            fg=MUTED,
+            font=("Segoe UI", 9),
+        ).pack(side="left", fill="x", expand=True, pady=9)
+        self.button(setup, "Create Direct Layouts", self.create_media_obs_layouts, compact=True).pack(side="right", padx=10, pady=7)
         self.refresh_media_feeds()
 
     def media_runner_for_slot(self, slot: int) -> Any:
@@ -1009,9 +1025,18 @@ class RestreamApp(tk.Tk):
                 status.pack(side="left", padx=(0, 8))
                 message = tk.Label(row, anchor="w", bg=PANEL_2, fg=MUTED, font=("Segoe UI", 9))
                 message.pack(side="left", fill="x", expand=True, padx=(0, 8))
-                self.button(row, "Start / Restart", lambda s=slot: self.start_media_slot(s), compact=True).pack(side="right", padx=4, pady=7)
-                self.button(row, "Stop", lambda s=slot: self.stop_media_slot(s), danger=True, compact=True).pack(side="right", padx=4, pady=7)
-                self.media_feed_rows[slot] = {"name": name, "twitch": twitch, "status": status, "message": message}
+                start = self.button(row, "Start Feed", lambda s=slot: self.start_media_slot(s), primary=True, compact=True)
+                start.pack(side="right", padx=4, pady=7)
+                stop = self.button(row, "Stop", lambda s=slot: self.stop_media_slot(s), danger=True, compact=True)
+                stop.pack(side="right", padx=4, pady=7)
+                self.media_feed_rows[slot] = {
+                    "name": name,
+                    "twitch": twitch,
+                    "status": status,
+                    "message": message,
+                    "start": start,
+                    "stop": stop,
+                }
         active = False
         for slot in visible_slots:
             runner = self.media_runner_for_slot(slot)
@@ -1030,6 +1055,9 @@ class RestreamApp(tk.Tk):
             labels["twitch"].configure(text=f"twitch.tv/{twitch}" if twitch else "")
             labels["status"].configure(text=status, fg=color)
             labels["message"].configure(text=message)
+            is_running = status in {"Starting", "Retrying", "Running"}
+            labels["start"].configure(text="Restart Feed" if is_running else "Start Feed")
+            labels["stop"].configure(state="normal" if is_running else "disabled")
         if active and self.current_page == "Media Feeds":
             self.media_feed_refresh_after = self.after(2000, self.refresh_media_feeds)
 
@@ -1403,7 +1431,7 @@ class RestreamApp(tk.Tk):
         messagebox.showerror(
             "Direct OBS layout not ready",
             "The Direct OBS layout could not be upgraded. Open Custom Layout and apply it to Direct OBS, "
-            "or use Create 2P/4P OBS Layouts on the Direct OBS page, then try again.",
+            "or use Create Direct Layouts on the Direct OBS page, then try again.",
         )
         return False
 
@@ -1765,7 +1793,7 @@ class RestreamApp(tk.Tk):
         audio_panel = self.panel(parent, "5. Audio")
         tk.Label(
             audio_panel,
-            text="Launch runner VLC windows first, then map runner audio. Do not mute VLC. If you do not want to hear VLC locally, route VLC to an unused output device in Windows Volume Mixer.",
+            textvariable=self.wizard_audio_note_var,
             bg=PANEL,
             fg=MUTED,
             anchor="w",
@@ -1815,20 +1843,6 @@ class RestreamApp(tk.Tk):
         self.sync_panel.pack(fill="both", expand=True)
 
     def _build_audio_panel(self, parent: tk.Frame) -> None:
-        help_panel = self.panel(parent, "Playback Audio")
-        tk.Label(
-            help_panel,
-            textvariable=self.audio_playback_note_var,
-            bg=PANEL,
-            fg=MUTED,
-            anchor="w",
-            justify="left",
-            wraplength=1100,
-        ).pack(fill="x", padx=16, pady=(4, 8))
-        help_actions = tk.Frame(help_panel, bg=PANEL)
-        help_actions.pack(fill="x", padx=16, pady=(0, 14))
-        self.button(help_actions, "Open Volume Mixer", open_windows_volume_mixer, primary=True, compact=True).pack(side="left", padx=(0, 8))
-
         p = self.panel(parent, "OBS Audio")
         top = tk.Frame(p, bg=PANEL)
         top.pack(fill="x", padx=16, pady=(4, 8))
@@ -1846,6 +1860,20 @@ class RestreamApp(tk.Tk):
 
         self.audio_rows_frame = tk.Frame(p, bg=PANEL)
         self.audio_rows_frame.pack(fill="x", padx=16, pady=(0, 14))
+
+        help_panel = self.panel(parent, "Playback Audio")
+        tk.Label(
+            help_panel,
+            textvariable=self.audio_playback_note_var,
+            bg=PANEL,
+            fg=MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=1100,
+        ).pack(fill="x", padx=16, pady=(4, 8))
+        help_actions = tk.Frame(help_panel, bg=PANEL)
+        help_actions.pack(fill="x", padx=16, pady=(0, 14))
+        self.button(help_actions, "Open Volume Mixer", open_windows_volume_mixer, primary=True, compact=True).pack(side="left", padx=(0, 8))
 
         mapper = self.panel(parent, "Audio Source Mapper")
         mapper_top = tk.Frame(mapper, bg=PANEL)
@@ -1977,13 +2005,15 @@ class RestreamApp(tk.Tk):
         self.button(image_tools, "Load", self.load_layout_background, compact=True).pack(side="left", padx=(0, 8))
         self.button(image_tools, "Clear", self.clear_layout_background, compact=True).pack(side="left", padx=(0, 8))
         tk.Label(image_tools, text="Overlay layer", bg=BG, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 8))
-        ttk.Combobox(
+        layout_image_layer_combo = ttk.Combobox(
             image_tools,
             textvariable=self.layout_image_layer_var,
             values=["Overlay above feeds", "Behind feeds"],
             state="readonly",
             width=18,
-        ).pack(side="left", padx=(0, 8), ipady=5)
+        )
+        layout_image_layer_combo.pack(side="left", padx=(0, 8), ipady=5)
+        layout_image_layer_combo.bind("<<ComboboxSelected>>", self.on_layout_image_layer_changed)
 
         actions = tk.Frame(parent, bg=BG)
         actions.pack(fill="x", pady=(0, 8))
@@ -2033,6 +2063,14 @@ class RestreamApp(tk.Tk):
         bottom.pack(fill="x", pady=(8, 0))
         tk.Label(bottom, textvariable=self.layout_status_var, bg=BG, fg=MUTED, anchor="w", font=("Segoe UI", 9)).pack(side="left", fill="x", expand=True)
         self.button(bottom, "Save Layout", self.save_layout_designer, compact=True).pack(side="right", padx=(8, 0))
+        self.layout_dirty_label = tk.Label(
+            bottom,
+            textvariable=self.layout_dirty_var,
+            bg=BG,
+            fg=GOOD,
+            font=("Segoe UI", 9, "bold"),
+        )
+        self.layout_dirty_label.pack(side="right", padx=(8, 4))
         self.button(bottom, "Reload Saved Layout", self.load_layout_designer, compact=True).pack(side="right", padx=(8, 0))
         self.button(bottom, "Remove Unused Sources", self.remove_unused_layout_sources, compact=True, danger=True).pack(side="right", padx=(8, 0))
         self.button(bottom, "Clear Boxes", self.clear_layout_regions, compact=True, danger=True).pack(side="right", padx=(8, 0))
@@ -2123,6 +2161,11 @@ class RestreamApp(tk.Tk):
         if len(self.layout_undo_stack) > 30:
             self.layout_undo_stack.pop(0)
 
+    def set_layout_dirty(self, dirty: bool = True) -> None:
+        self.layout_dirty_var.set("Unsaved changes" if dirty else "Saved")
+        if self.layout_dirty_label is not None:
+            self.layout_dirty_label.configure(fg=WARN if dirty else GOOD)
+
     def undo_layout_change(self) -> None:
         if not self.layout_undo_stack:
             self.layout_status_var.set("Nothing to undo.")
@@ -2138,6 +2181,7 @@ class RestreamApp(tk.Tk):
         self.set_layout_image_path(str(snapshot.get("background", "") or ""))
         self.load_layout_region_settings(None)
         self.layout_status_var.set("Undid last custom layout change.")
+        self.set_layout_dirty()
         self.redraw_layout_designer()
 
     def set_layout_image_path(self, path: str) -> None:
@@ -2362,6 +2406,7 @@ class RestreamApp(tk.Tk):
         self.load_layout_region_settings(None)
         part_label = "all runner" if requested_part == "All" else requested_part
         self.layout_status_var.set(f"Copied {len(copied)} {part_label} box(es) from {source_slot} to {target_slot}. Drag them into place.")
+        self.set_layout_dirty()
         self.redraw_layout_designer()
 
     def layout_canvas_mouse_down(self, event) -> None:
@@ -2493,6 +2538,7 @@ class RestreamApp(tk.Tk):
             region["source"] = self.default_designer_source_name(app_state.normalize_layout(region.get("layout", self.layout_mode_var.get())), region)
             self.layout_source_name_var.set(str(region["source"]))
         self.layout_status_var.set(f"Updated {self.layout_region_label(region)} settings.")
+        self.set_layout_dirty()
         self.redraw_layout_designer()
 
     def update_selected_layout_text(self) -> None:
@@ -2503,6 +2549,7 @@ class RestreamApp(tk.Tk):
         self.push_layout_undo()
         region["text"] = self.layout_text_var.get().strip()
         self.layout_status_var.set(f"Updated {self.layout_region_label(region)} text.")
+        self.set_layout_dirty()
         self.redraw_layout_designer()
 
     def update_selected_layout_image(self) -> None:
@@ -2516,6 +2563,7 @@ class RestreamApp(tk.Tk):
         if not region.get("source"):
             region["source"] = self.default_designer_source_name(app_state.normalize_layout(region.get("layout", self.layout_mode_var.get())), region)
         self.layout_status_var.set(f"Updated {self.layout_region_label(region)} image.")
+        self.set_layout_dirty()
         self.redraw_layout_designer()
 
     def update_selected_layout_image_layer(self, _event=None) -> None:
@@ -2525,6 +2573,7 @@ class RestreamApp(tk.Tk):
         self.push_layout_undo()
         region["layer"] = self.layout_image_region_layer_var.get().strip() or "Above feeds"
         self.layout_status_var.set(f"{self.layout_region_label(region)} layer set to {region['layer']}.")
+        self.set_layout_dirty()
         self.redraw_layout_designer()
 
     def nudge_selected_layout_regions(self, event) -> str:
@@ -2552,6 +2601,7 @@ class RestreamApp(tk.Tk):
             region["x"] = max(0.0, min(float(region.get("x", 0)) + dx, DESIGN_WIDTH - width))
             region["y"] = max(0.0, min(float(region.get("y", 0)) + dy, DESIGN_HEIGHT - height))
         self.layout_status_var.set(f"Nudged {len(selected)} box(es). Hold Shift for 10 px.")
+        self.set_layout_dirty()
         self.redraw_layout_designer()
         return "break"
 
@@ -2607,6 +2657,22 @@ class RestreamApp(tk.Tk):
                 selected_count = len(self.layout_selected_ids)
                 suffix = f" ({selected_count} selected)" if selected_count > 1 else ""
                 self.layout_status_var.set(f"Selected {label}: {int(region['w'])}x{int(region['h'])} at {int(region['x'])},{int(region['y'])}.{suffix}")
+                mode = self.layout_drag["mode"]
+                changed = mode == "draw"
+                if mode == "move":
+                    originals = self.layout_drag.get("selected_originals", {})
+                    changed = any(
+                        (selected := self.layout_region_by_id(region_id)) is not None
+                        and (float(selected.get("x", 0)) != float(original["x"]) or float(selected.get("y", 0)) != float(original["y"]))
+                        for region_id, original in originals.items()
+                    )
+                elif mode == "resize":
+                    changed = (
+                        float(region.get("w", 0)) != float(self.layout_drag["orig_w"])
+                        or float(region.get("h", 0)) != float(self.layout_drag["orig_h"])
+                    )
+                if changed:
+                    self.set_layout_dirty()
         self.layout_drag = None
         self.redraw_layout_designer()
 
@@ -2702,14 +2768,20 @@ class RestreamApp(tk.Tk):
             self.set_layout_image_path(path)
             self.layout_image_label_var.set(Path(path).name)
             self.layout_status_var.set(f"Loaded layout image: {Path(path).name}")
+            self.set_layout_dirty()
             self.redraw_layout_designer()
         except Exception as exc:
             messagebox.showerror("Layout image failed", str(exc))
+
+    def on_layout_image_layer_changed(self, _event=None) -> None:
+        self.layout_status_var.set(f"Layout image layer set to {self.layout_image_layer_var.get()}.")
+        self.set_layout_dirty()
 
     def clear_layout_background(self) -> None:
         self.push_layout_undo()
         self.set_layout_image_path("")
         self.layout_status_var.set("Layout image cleared.")
+        self.set_layout_dirty()
         self.redraw_layout_designer()
 
     def delete_selected_layout_region(self) -> None:
@@ -2727,6 +2799,7 @@ class RestreamApp(tk.Tk):
         self.layout_selected_ids.clear()
         self.load_layout_region_settings(None)
         self.layout_status_var.set(f"Deleted {before - len(self.layout_regions)} region(s).")
+        self.set_layout_dirty()
         self.redraw_layout_designer()
 
     def clear_layout_regions(self) -> None:
@@ -2741,6 +2814,7 @@ class RestreamApp(tk.Tk):
         self.layout_selected_ids.clear()
         self.load_layout_region_settings(None)
         self.layout_status_var.set("Cleared all regions.")
+        self.set_layout_dirty()
         self.redraw_layout_designer()
 
     def clear_layout_text_regions(self) -> None:
@@ -2763,6 +2837,7 @@ class RestreamApp(tk.Tk):
             self.layout_selected_ids.difference_update(text_ids)
             self.load_layout_region_settings(None)
         self.layout_status_var.set(f"Cleared {len(text_regions)} extra text box(es). Use Remove Unused Sources to remove them from OBS.")
+        self.set_layout_dirty()
         self.redraw_layout_designer()
 
     def layout_designer_store(self) -> dict[str, Any]:
@@ -2789,6 +2864,7 @@ class RestreamApp(tk.Tk):
         data = self.current_layout_designer_data()
         self.save_layout_designer_data(data)
         self.layout_status_var.set(f"Saved {len(self.layout_regions)} {app_state.normalize_layout(data['layout'])} region(s).")
+        self.set_layout_dirty(False)
 
     def current_layout_designer_data(self) -> dict[str, Any]:
         return {
@@ -2824,6 +2900,7 @@ class RestreamApp(tk.Tk):
         self.load_layout_region_settings(None)
         if show_status:
             self.layout_status_var.set(f"Loaded {len(self.layout_regions)} {requested_layout} region(s).")
+        self.set_layout_dirty(False)
         self.redraw_layout_designer()
 
     def apply_current_designer_layout_to_obs(self) -> None:
@@ -3248,6 +3325,7 @@ class RestreamApp(tk.Tk):
     ) -> None:
         if save_first:
             self.save_layout_designer_data(data)
+            self.set_layout_dirty(False)
         regions = data.get("regions", [])
         background_path = str(data.get("background", "") or "")
         image_layer = str(data.get("layout_image_layer", "Overlay above feeds") or "Overlay above feeds")
@@ -3460,25 +3538,35 @@ class RestreamApp(tk.Tk):
         self.button(bottom, "Save All", self.save_all_names, primary=True).pack(side="right")
 
     def _build_settings(self, parent: tk.Frame) -> None:
-        p = self.panel(parent, "Settings")
-        row1 = tk.Frame(p, bg=PANEL)
-        row1.pack(fill="x", padx=16, pady=(4, 10))
-        self.button(row1, "Open Launcher Folder", lambda: open_folder(BASE_DIR)).pack(side="left", padx=(0, 8))
-        self.button(row1, "Open OBS Text Folder", lambda: open_folder(OBS_TEXT_DIR)).pack(side="left", padx=8)
-        self.button(row1, "Open Screenshot Folder", lambda: open_folder(SCREENSHOT_DIR)).pack(side="left", padx=8)
-        self.button(row1, "Open State Folder", lambda: open_folder(app_state.STATE_DIR)).pack(side="left", padx=8)
-        self.button(row1, "Open Discord PTB", self.open_discord_ptb).pack(side="left", padx=8)
+        folders_panel = self.panel(parent, "Files & Folders")
+        folders = tk.Frame(folders_panel, bg=PANEL)
+        folders.pack(fill="x", padx=16, pady=(4, 14))
+        self.button(folders, "Open Launcher Folder", lambda: open_folder(BASE_DIR), compact=True).pack(side="left", padx=(0, 8))
+        self.button(folders, "Open OBS Text Folder", lambda: open_folder(OBS_TEXT_DIR), compact=True).pack(side="left", padx=8)
+        self.button(folders, "Open Screenshot Folder", lambda: open_folder(SCREENSHOT_DIR), compact=True).pack(side="left", padx=8)
+        self.button(folders, "Open App Data Folder", lambda: open_folder(app_state.STATE_DIR), compact=True).pack(side="left", padx=8)
+        self.button(folders, "Open Discord PTB", self.open_discord_ptb, compact=True).pack(side="left", padx=8)
 
-        row2 = tk.Frame(p, bg=PANEL)
-        row2.pack(fill="x", padx=16, pady=(0, 12))
-        self.button(row2, "Delete Crop Screenshots", self.delete_screenshots, danger=True).pack(side="left", padx=(0, 8))
-        self.button(row2, "Delete Timer Images", self.delete_timer_screenshots, danger=True).pack(side="left", padx=8)
-
-        row3 = tk.Frame(p, bg=PANEL)
-        row3.pack(fill="x", padx=16, pady=(0, 12))
-        self.button(row3, "Export Settings", self.export_settings, primary=True).pack(side="left", padx=(0, 8))
-        self.button(row3, "Import Settings", self.import_settings).pack(side="left", padx=8)
-        self.button(row3, "Copy Diagnostics", self.copy_diagnostics, compact=True).pack(side="left", padx=8)
+        maintenance_panel = self.panel(parent, "Maintenance")
+        maintenance_top = tk.Frame(maintenance_panel, bg=PANEL)
+        maintenance_top.pack(fill="x", padx=16, pady=(4, 8))
+        self.button(maintenance_top, "Backup Local Data", self.backup_local_data, primary=True, compact=True).pack(side="left", padx=(0, 8))
+        self.button(maintenance_top, "Restore Runner List", self.restore_runner_list, compact=True).pack(side="left", padx=8)
+        self.button(maintenance_top, "Open Backup Folder", lambda: open_folder(self.local_backup_dir()), compact=True).pack(side="left", padx=8)
+        maintenance_bottom = tk.Frame(maintenance_panel, bg=PANEL)
+        maintenance_bottom.pack(fill="x", padx=16, pady=(0, 8))
+        self.button(maintenance_bottom, "Delete Crop Screenshots", self.delete_screenshots, danger=True, compact=True).pack(side="left", padx=(0, 8))
+        self.button(maintenance_bottom, "Delete Timer Images", self.delete_timer_screenshots, danger=True, compact=True).pack(side="left", padx=8)
+        self.button(maintenance_bottom, "Export Settings", self.export_settings, primary=True, compact=True).pack(side="left", padx=8)
+        self.button(maintenance_bottom, "Import Settings", self.import_settings, compact=True).pack(side="left", padx=8)
+        self.button(maintenance_bottom, "Copy Diagnostics", self.copy_diagnostics, compact=True).pack(side="left", padx=8)
+        tk.Label(
+            maintenance_panel,
+            text="Backups include your runner list, crop presets, and custom OBS layout. These local files are ignored by Git.",
+            bg=PANEL,
+            fg=MUTED,
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", padx=16, pady=(0, 12))
 
         vlc_panel = self.panel(parent, "VLC Audio Output")
         tk.Label(
@@ -3501,28 +3589,14 @@ class RestreamApp(tk.Tk):
         self.button(vlc_row, "Open Volume Mixer", open_windows_volume_mixer, compact=True).pack(side="left")
         tk.Label(vlc_panel, textvariable=self.vlc_audio_status_var, bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", padx=16, pady=(0, 12))
 
-        backup_panel = self.panel(parent, "Local Data Backups")
-        backup_top = tk.Frame(backup_panel, bg=PANEL)
-        backup_top.pack(fill="x", padx=16, pady=(4, 8))
-        self.button(backup_top, "Backup Local Data", self.backup_local_data, primary=True, compact=True).pack(side="left", padx=(0, 8))
-        self.button(backup_top, "Restore Runner List", self.restore_runner_list, compact=True).pack(side="left", padx=8)
-        self.button(backup_top, "Open Runner CSV", self.open_runner_csv, compact=True).pack(side="left", padx=8)
-        self.button(backup_top, "Open Backup Folder", lambda: open_folder(self.local_backup_dir()), compact=True).pack(side="left", padx=8)
-        tk.Label(
-            backup_panel,
-            text="Backs up your runner list, crop presets, and custom OBS layout. These local files are ignored by Git.",
-            bg=PANEL,
-            fg=MUTED,
-            font=("Segoe UI", 9),
-        ).pack(anchor="w", padx=16, pady=(0, 12))
-
         runner_panel = self.panel(parent, "Runner List")
         edit_top = tk.Frame(runner_panel, bg=PANEL)
         edit_top.pack(fill="x", padx=16, pady=(4, 8))
         self.edit_runner_combo = ttk.Combobox(edit_top, textvariable=self.edit_runner_var, state="readonly", width=42)
         self.edit_runner_combo.pack(side="left", fill="x", expand=True, ipady=5, padx=(0, 8))
         self.edit_runner_combo.bind("<<ComboboxSelected>>", self.load_runner_editor_selection)
-        self.button(edit_top, "Reload", self.refresh_runner_editor, compact=True).pack(side="left")
+        self.button(edit_top, "Reload", self.refresh_runner_editor, compact=True).pack(side="left", padx=(0, 8))
+        self.button(edit_top, "Open Runner CSV", self.open_runner_csv, compact=True).pack(side="left")
 
         edit_actions = tk.Frame(runner_panel, bg=PANEL)
         edit_actions.pack(fill="x", padx=16, pady=(0, 8))
@@ -3552,32 +3626,56 @@ class RestreamApp(tk.Tk):
         self.button(obs_row, "Save", self.save_obs_settings, compact=True).pack(side="left", padx=(0, 8))
         self.button(obs_row, "Test", self.test_obs_connection, compact=True).pack(side="left")
 
-        mapping_panel = self.panel(parent, "OBS Source Mapping")
-        mapping_top = tk.Frame(mapping_panel, bg=PANEL)
-        mapping_top.pack(fill="x", padx=16, pady=(4, 8))
+        mapping_panel = self.panel(parent, "Advanced OBS Compatibility")
+        mapping_header = tk.Frame(mapping_panel, bg=PANEL)
+        mapping_header.pack(fill="x", padx=16, pady=(4, 10))
+        tk.Label(
+            mapping_header,
+            text="Only use this when Restream Control must work with existing OBS sources that use different names.",
+            bg=PANEL,
+            fg=MUTED,
+            font=("Segoe UI", 9),
+        ).pack(side="left", fill="x", expand=True)
+        self.source_mapping_toggle = self.button(mapping_header, "Show Mapping", self.toggle_source_mapping_editor, compact=True)
+        self.source_mapping_toggle.pack(side="right")
+        self.source_mapping_body = tk.Frame(mapping_panel, bg=PANEL)
+        mapping_top = tk.Frame(self.source_mapping_body, bg=PANEL)
+        mapping_top.pack(fill="x", padx=16, pady=(0, 8))
         self.button(mapping_top, "Load Current", self.load_source_map_editor, compact=True).pack(side="left", padx=(0, 8))
         self.button(mapping_top, "Use Default Names", self.fill_default_source_map, compact=True).pack(side="left", padx=8)
         self.button(mapping_top, "Save Mapping", self.save_source_map_editor, primary=True, compact=True).pack(side="left", padx=8)
         tk.Label(
-            mapping_panel,
+            self.source_mapping_body,
             text="Edit the right side only. Left side is the app's expected name; right side is the actual OBS source or group item name.",
             bg=PANEL,
             fg=MUTED,
             font=("Segoe UI", 9),
         ).pack(anchor="w", padx=16, pady=(0, 6))
         tk.Label(
-            mapping_panel,
+            self.source_mapping_body,
             text="Example: 4P R1 Stream = Player 1 Capture",
             bg=PANEL,
             fg=MUTED,
             font=("Segoe UI", 9),
         ).pack(anchor="w", padx=16, pady=(0, 6))
-        self.source_map_text = tk.Text(mapping_panel, height=12, bg=INPUT_BG, fg=TEXT, insertbackground=TEXT, relief="flat", wrap="none")
+        self.source_map_text = tk.Text(self.source_mapping_body, height=12, bg=INPUT_BG, fg=TEXT, insertbackground=TEXT, relief="flat", wrap="none")
         self.source_map_text.pack(fill="both", expand=True, padx=16, pady=(0, 14))
         self.load_source_map_editor()
 
         self.refresh_runner_editor()
         self.refresh_vlc_audio_devices()
+
+    def toggle_source_mapping_editor(self) -> None:
+        if self.source_mapping_body is None or self.source_mapping_toggle is None:
+            return
+        self.source_mapping_visible = not self.source_mapping_visible
+        if self.source_mapping_visible:
+            self.source_mapping_body.pack(fill="both", expand=True)
+            self.source_mapping_toggle.configure(text="Hide Mapping")
+            self.load_source_map_editor()
+        else:
+            self.source_mapping_body.pack_forget()
+            self.source_mapping_toggle.configure(text="Show Mapping")
 
     def discover_vlc_audio_devices(self) -> list[dict[str, str]]:
         if os.name != "nt":
@@ -4353,8 +4451,14 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             self.runner_rows[slot].selected_var.set(f"{display or twitch} - {twitch}" if twitch else display)
             self.runner_rows[slot].display_var.set(display or twitch)
             self.runner_rows[slot].twitch_var.set(twitch)
-        self.comms_var.set(str(race.get("comms", "") or ""))
-        self.log_status("Loaded saved race into setup fields.")
+        # Older saved races may predate the comms field. Keep their existing
+        # OBS text instead of clearing Comms when loading the runner setup.
+        if "comms" in race:
+            comms = str(race.get("comms", "") or "")
+        else:
+            comms = self.read_text_file("comm_names.txt")
+        self.comms_var.set(comms)
+        self.log_status("Loaded saved race, including comms, into setup fields.")
 
     def screenshot_count(self) -> int:
         try:
@@ -4468,6 +4572,14 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
         )
         winget_note = " Windows Package Manager is available." if shutil.which("winget") else " Windows Package Manager is not available; use the download links instead."
         self.wizard_runtime_var.set(f"{engine} requires {status}.{winget_note}")
+        if playback_engine_key(self.playback_engine_var.get()) == "OBS Media Feeds":
+            self.wizard_audio_note_var.set(
+                "Runner audio is included in each Direct OBS feed. Use the Audio tab to adjust OBS levels and mute sources."
+            )
+        else:
+            self.wizard_audio_note_var.set(
+                "Launch runner VLC windows first, then map runner audio. Do not mute VLC. If you do not want to hear VLC locally, route VLC to an unused output device in Windows Volume Mixer."
+            )
 
     def open_missing_runtime_downloads(self) -> None:
         missing = self.missing_runtime_requirements()

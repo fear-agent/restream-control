@@ -30,10 +30,10 @@ Open `Setup Wizard` after starting the app. It checks the tools required for the
 
 Choose one method on `Setup`. Cropping, Sync, Audio, and Custom Layout follow that choice automatically.
 
-- `Standard: VLC Windows`: the established workflow. Each runner opens in a VLC window.
-- `Direct to OBS: Media Feeds`: no VLC windows. Streamlink and FFmpeg send one feed per runner directly to OBS. OBS decodes each runner once and reuses that input for independently cropped Game, Tracker, Timer, and Facecam items. On first use, open `Direct OBS` and click `Create 2P/4P OBS Layouts`. Its `Direct quality` control applies when a feed is started or restarted.
+- `Standard: VLC Windows`: each runner opens in a VLC window.
+- `Direct to OBS: Media Feeds`: no VLC windows. Streamlink and FFmpeg send one feed per runner directly to OBS. OBS decodes each runner once and reuses that input for independently cropped Game, Tracker, Timer, and Facecam items. On first use, open `Direct OBS` and use `First-time Direct OBS setup` > `Create Direct Layouts`. Its `Direct quality` control applies when a feed is started or restarted.
 
-Direct feeds may be started before or after the OBS output. When OBS is already streaming or recording, `Start Selected Race` automatically starts runners one at a time to avoid initializing every decoder at once. Layout creation and source-setting repairs still require the OBS output to be stopped. Individual runner restart/replace remains available during a live race.
+Direct feeds may be started before or after the OBS output. When OBS is already streaming or recording, `Start Direct OBS Feeds` on Setup automatically starts runners one at a time to avoid initializing every decoder at once. Layout creation and source-setting repairs still require the OBS output to be stopped. Individual runner restart/replace remains available during a live race.
 
 ## Main Workflow
 
@@ -51,7 +51,7 @@ Saved crops are remembered by runner and layout, so repeat runners usually load 
 
 Use `Template Setup` if you want the included default Restream Control scenes and source names. It follows the playback method selected on Setup, creating either VLC Restream scenes or Direct OBS Media Restream scenes.
 
-Use `Custom Layout` if you want to draw your own OBS layout inside the app.
+Use `Custom OBS Layout` if you want to draw your own OBS layout inside the app.
 
 Restream Control supports OBS Studio with obs-websocket. Streamlabs Desktop is not supported.
 

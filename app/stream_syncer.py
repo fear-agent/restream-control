@@ -313,9 +313,7 @@ class SyncPanel(tk.Frame):
         ttk.Label(top, text="Playback:").pack(side="left", padx=(0, 6))
         ttk.Label(top, textvariable=self.sync_source_var).pack(side="left")
         ttk.Button(top, text="Refresh Status", command=self.refresh_all).pack(side="right", padx=(8, 0))
-        ttk.Button(top, text="Clear Seconds", command=self.clear_seconds).pack(side="right", padx=(8, 0))
         ttk.Button(top, text="Return All To Live", command=self.return_all_media_to_live).pack(side="right", padx=(8, 0))
-        ttk.Button(top, text="Apply All Delays", command=self.delay_all_entered).pack(side="right", padx=(8, 0))
         ttk.Button(top, text="Clear Timer Images", command=self.clear_timer_screenshots).pack(side="right", padx=(8, 0))
 
         content = ttk.Frame(outer)
@@ -323,10 +321,9 @@ class SyncPanel(tk.Frame):
 
         left = ttk.Frame(content)
         left.pack(side="left", fill="both", expand=True, padx=(0, 12))
-
         right = ttk.Frame(content)
         right.pack(side="left", fill="both")
-        right.configure(width=340)
+        right.configure(width=350)
         right.pack_propagate(False)
 
         preview_frame = ttk.Frame(left)
@@ -355,66 +352,30 @@ class SyncPanel(tk.Frame):
         self.timer_preview_canvas.bind("<ButtonPress-1>", self.on_timer_preview_press)
         self.timer_preview_canvas.bind("<B1-Motion>", self.on_timer_preview_drag)
 
-        calc = ttk.LabelFrame(left, text="Delay Calculator")
+        calc = ttk.LabelFrame(right, text="Delay Calculator")
         calc.pack(fill="x", pady=(0, 10))
-        ttk.Label(calc, text="Base timer").grid(row=0, column=0, sticky="w", padx=(8, 6), pady=(8, 4))
-        ttk.Entry(calc, textvariable=self.calc_time_a_var, width=12).grid(row=0, column=1, sticky="w", padx=(0, 10), pady=(8, 4))
-        ttk.Label(calc, text="Runner timer").grid(row=0, column=2, sticky="w", padx=(0, 6), pady=(8, 4))
-        ttk.Entry(calc, textvariable=self.calc_time_b_var, width=12).grid(row=0, column=3, sticky="w", padx=(0, 10), pady=(8, 4))
-        ttk.Button(calc, text="Calculate", command=self.calculate_time_difference).grid(row=0, column=4, sticky="w", padx=(0, 10), pady=(8, 4))
-        ttk.Label(calc, textvariable=self.calc_result_var).grid(row=0, column=5, sticky="w", padx=(0, 8), pady=(8, 4))
-
-        ttk.Label(calc, text="Base is the timer everyone should match. Runner is the stream you are delaying.", foreground=MUTED).grid(
-            row=1, column=0, columnspan=6, sticky="w", padx=(8, 8), pady=(2, 4)
-        )
-        ttk.Label(calc, text="Send result to runner").grid(row=2, column=0, columnspan=2, sticky="w", padx=(8, 6), pady=(4, 8))
-        ttk.Combobox(calc, textvariable=self.calc_slot_var, values=["1", "2", "3", "4"], width=8, state="readonly").grid(row=2, column=2, sticky="w", padx=(0, 10), pady=(4, 8))
-        ttk.Button(calc, text="Use as Delay", command=self.use_calculated_delay).grid(row=2, column=3, columnspan=2, sticky="w", padx=(0, 8), pady=(4, 8))
-        ttk.Button(calc, text="Delay Now", command=self.delay_calculated_now).grid(row=2, column=5, sticky="w", padx=(0, 8), pady=(4, 8))
-        calc.columnconfigure(5, weight=1)
-
-        runner_frame = ttk.Frame(right)
-        runner_frame.pack(fill="x")
-        for slot in range(1, 5):
-            card = tk.Frame(runner_frame, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
-            card.pack(fill="x", pady=(0, 8))
-            top_row = tk.Frame(card, bg=PANEL)
-            top_row.pack(fill="x", padx=8, pady=(7, 4))
-            ttk.Label(top_row, text=f"R{slot}", width=4, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 8))
-
-            runner_var = tk.StringVar(value="")
-            self.runner_vars[slot] = runner_var
-            ttk.Label(top_row, textvariable=runner_var).pack(side="left", fill="x", expand=True)
-            ttk.Label(top_row, text="Delay").pack(side="left", padx=(6, 4))
-
-            status_var = tk.StringVar(value="Not found")
-            self.status_vars[slot] = status_var
-
-            seconds_var = tk.StringVar(value="")
-            self.seconds_vars[slot] = seconds_var
-            ttk.Entry(top_row, textvariable=seconds_var, width=9).pack(side="left")
-
-            actions = ttk.Frame(card)
-            actions.pack(fill="x", padx=8, pady=(0, 7))
-            delay_button = ttk.Button(actions, text="Delay", command=lambda s=slot: self.delay_one(s), width=7)
-            delay_button.pack(side="left", padx=(0, 5))
-            self.delay_buttons[slot] = delay_button
-
-            toggle_button = ttk.Button(actions, text="Pause", command=lambda s=slot: self.toggle_one(s), width=7)
-            toggle_button.pack(side="left", padx=(0, 5))
-            self.toggle_buttons[slot] = toggle_button
-
-            reload_button = ttk.Button(actions, text="Relaunch", command=lambda s=slot: self.reload_live(s), width=8)
-            reload_button.pack(side="left")
-            self.reload_buttons[slot] = reload_button
-
-        controls = ttk.Frame(right)
-        controls.pack(fill="x", pady=(14, 8))
-        ttk.Button(controls, text="Refresh", command=self.refresh_windows).pack(side="left", padx=(0, 8))
-        ttk.Button(controls, text="Reload Race Info", command=self.refresh_race_info).pack(side="left", padx=(0, 8))
+        ttk.Label(calc, text="Base timer", foreground=MUTED).pack(anchor="w", padx=8, pady=(8, 2))
+        ttk.Entry(calc, textvariable=self.calc_time_a_var).pack(fill="x", padx=8)
+        ttk.Label(calc, text="Runner timer", foreground=MUTED).pack(anchor="w", padx=8, pady=(8, 2))
+        ttk.Entry(calc, textvariable=self.calc_time_b_var).pack(fill="x", padx=8)
+        ttk.Label(
+            calc,
+            text="Base is the timer everyone should match. Runner is the stream you are delaying.",
+            foreground=MUTED,
+            wraplength=320,
+        ).pack(fill="x", padx=8, pady=(8, 4))
+        calculation_actions = ttk.Frame(calc)
+        calculation_actions.pack(fill="x", padx=8, pady=(0, 8))
+        ttk.Button(calculation_actions, text="Calculate", command=self.calculate_time_difference).pack(side="left")
+        ttk.Label(calculation_actions, textvariable=self.calc_result_var).pack(side="left", padx=10)
+        target_actions = ttk.Frame(calc)
+        target_actions.pack(fill="x", padx=8, pady=(0, 10))
+        ttk.Label(target_actions, text="Delay runner").pack(side="left", padx=(0, 6))
+        ttk.Combobox(target_actions, textvariable=self.calc_slot_var, values=["1", "2", "3", "4"], width=6, state="readonly").pack(side="left", padx=(0, 8))
+        ttk.Button(target_actions, text="Apply Delay", command=self.delay_calculated_now).pack(side="left")
 
         self.summary_var = tk.StringVar(value="")
-        ttk.Label(right, textvariable=self.summary_var, wraplength=330).pack(anchor="w", pady=(2, 6))
+        ttk.Label(right, textvariable=self.summary_var, foreground=MUTED, wraplength=330).pack(anchor="w", pady=(2, 8))
 
         log_frame = ttk.LabelFrame(right, text="Log")
         log_frame.pack(fill="both", expand=True)
@@ -744,48 +705,18 @@ class SyncPanel(tk.Frame):
     def refresh_race_info(self, log: bool = True) -> None:
         self.runner_info = parse_last_setup()
         self.runner_info.update(load_current_race_info())
-        for slot in range(1, 5):
-            info = self.runner_info.get(slot)
-            if info:
-                self.runner_vars[slot].set(info.display_name)
-                self.reload_buttons[slot].configure(state="normal")
-            else:
-                self.runner_vars[slot].set("No last setup")
-                self.reload_buttons[slot].configure(state="normal")
         if log:
             self.log_message(f"Reloaded race info. Found {len(self.runner_info)} runner(s).")
 
     def refresh_windows(self, log: bool = True) -> None:
         if self.is_media_feed_mode():
             states = media_feed_service.all_states()
-            running = 0
-            for slot in range(1, 5):
-                state_info = states.get(slot, {})
-                state = str(state_info.get("status") or "stopped")
-                if state == "running":
-                    running += 1
-                self.status_vars[slot].set(str(state_info.get("message") or "Not running"))
-                enabled = state == "running" and slot not in self.busy_slots
-                self.delay_buttons[slot].configure(state="normal" if enabled else "disabled")
-                self.toggle_buttons[slot].configure(text="Not used", state="disabled")
-                self.reload_buttons[slot].configure(text="Return Live", state="normal" if state_info.get("twitch_name") else "disabled")
+            running = sum(1 for state_info in states.values() if state_info.get("status") == "running")
             self.summary_var.set(f"Detected {running} running local OBS media feed(s). Applying a delay restarts that feed with a buffer.")
             if log:
                 self.log_message(f"Refreshed OBS Media Feeds. Found {running} running feed(s).")
             return
         self.windows = list_runner_windows()
-        for slot in range(1, 5):
-            if slot in self.windows:
-                self.status_vars[slot].set(self.windows[slot].title)
-                state = "normal" if slot not in self.busy_slots else "disabled"
-                self.delay_buttons[slot].configure(state=state)
-                self.toggle_buttons[slot].configure(state=state)
-                self.toggle_buttons[slot].configure(text="Pause")
-                self.reload_buttons[slot].configure(text="Relaunch")
-            else:
-                self.status_vars[slot].set("Not found")
-                self.delay_buttons[slot].configure(state="disabled")
-                self.toggle_buttons[slot].configure(state="disabled")
         self.summary_var.set(f"Detected {len(self.windows)} runner VLC window(s). Refresh after relaunching or replacing a runner.")
         if log:
             self.log_message(f"Refreshed VLC windows. Found {len(self.windows)} runner VLC window(s).")
@@ -847,7 +778,8 @@ class SyncPanel(tk.Frame):
         self.log_message(f"Set RUNNER {slot} delay to {self.format_seconds(self.last_calculated_seconds)}s.")
 
     def delay_calculated_now(self) -> None:
-        self.use_calculated_delay()
+        if self.last_calculated_seconds is None:
+            self.calculate_time_difference()
         if self.last_calculated_seconds is None:
             return
         try:
@@ -855,7 +787,20 @@ class SyncPanel(tk.Frame):
         except ValueError:
             messagebox.showwarning("Time calculator", "Choose a runner slot.")
             return
-        self.delay_one(slot)
+        seconds = self.last_calculated_seconds
+        if self.is_media_feed_mode():
+            state = media_feed_service.load_state(slot)
+            if state.get("status") != "running":
+                messagebox.showwarning("Feed not running", f"R{slot} does not have a running Direct OBS feed.")
+                return
+            self._start_media_delay_thread(slot, seconds)
+            return
+        self.refresh_windows(log=False)
+        window = self.windows.get(slot)
+        if not window:
+            messagebox.showwarning("Window not found", f"RUNNER {slot} VLC window was not found. Click Refresh Status.")
+            return
+        self._start_delay_thread(slot, window, seconds)
 
     def _get_seconds(self, slot: int) -> Optional[float]:
         raw = self.seconds_vars[slot].get().strip()
@@ -875,18 +820,9 @@ class SyncPanel(tk.Frame):
     def _set_slot_busy(self, slot: int, busy: bool) -> None:
         if busy:
             self.busy_slots.add(slot)
-            self.delay_buttons[slot].configure(state="disabled")
-            self.toggle_buttons[slot].configure(state="disabled")
-            self.reload_buttons[slot].configure(state="disabled")
         else:
             self.busy_slots.discard(slot)
-            if self.is_media_feed_mode():
-                self.refresh_windows(log=False)
-                return
-            elif slot in self.windows:
-                self.delay_buttons[slot].configure(state="normal")
-                self.toggle_buttons[slot].configure(state="normal")
-            self.reload_buttons[slot].configure(state="normal")
+            self.refresh_windows(log=False)
 
     def toggle_one(self, slot: int) -> None:
         if self.is_media_feed_mode():

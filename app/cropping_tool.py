@@ -146,6 +146,7 @@ class CropPanel(tk.Frame):
         self.part_status_vars = {}
         self.part_rows = {}
         self.part_apply_buttons = {}
+        self.part_status_labels = {}
         self.show_obs_settings_var = tk.BooleanVar(value=False)
 
         self.config_data = load_config()
@@ -234,15 +235,19 @@ class CropPanel(tk.Frame):
 
         for label, part in [("Game", "Stream"), ("Tracker", "Tracker"), ("Timer", "Timer"), ("Facecam", "Facecam")]:
             row = ttk.Frame(runner_memory)
-            row.pack(fill=tk.X, padx=6, pady=3)
+            row.pack(fill=tk.X, padx=6, pady=(3, 5))
             self.part_rows[part] = row
-            ttk.Label(row, text=label, width=8).pack(side=tk.LEFT)
-            button = ttk.Button(row, text="Apply", command=lambda p=part: self.save_apply_runner_part_crop(p))
-            button.pack(side=tk.LEFT, padx=(0, 5))
+            action_row = ttk.Frame(row)
+            action_row.pack(fill=tk.X)
+            ttk.Label(action_row, text=label, width=8).pack(side=tk.LEFT)
+            button = ttk.Button(action_row, text="Apply", command=lambda p=part: self.save_apply_runner_part_crop(p))
+            button.pack(side=tk.LEFT)
             self.part_apply_buttons[part] = button
             var = tk.StringVar(value="no current runner")
             self.part_status_vars[part] = var
-            ttk.Label(row, textvariable=var).pack(side=tk.LEFT)
+            status = ttk.Label(row, textvariable=var, foreground=MUTED, wraplength=250)
+            status.pack(fill=tk.X, padx=(8, 0), pady=(2, 0))
+            self.part_status_labels[part] = status
 
         results = ttk.LabelFrame(right, text="Current Crop")
         results.pack(fill=tk.X, padx=8, pady=4)
@@ -786,6 +791,9 @@ class CropPanel(tk.Frame):
                 button = self.part_apply_buttons.get(part)
                 if button:
                     button.state(["disabled"])
+                label = self.part_status_labels.get(part)
+                if label:
+                    label.configure(foreground=MUTED)
             return
         twitch = (runner.get("twitch_name") or "").strip()
         display = runner.get("display_name") or twitch or "runner"
@@ -796,14 +804,21 @@ class CropPanel(tk.Frame):
             button = self.part_apply_buttons.get(part)
             if button:
                 button.state(["!disabled"] if available else ["disabled"])
+            label = self.part_status_labels.get(part)
             if not available:
                 var.set("not used in this custom layout")
+                if label:
+                    label.configure(foreground=MUTED)
                 continue
             preset = app_state.get_crop_preset(twitch, self.preset_part_name(part), layout) if twitch else None
             if preset:
-                var.set(f"saved for {display} ({layout})")
+                var.set(f"Saved for {display} ({layout})")
+                if label:
+                    label.configure(foreground=ACCENT)
             else:
-                var.set(f"not saved for {display} ({layout})")
+                var.set(f"Not saved for {display} ({layout})")
+                if label:
+                    label.configure(foreground=MUTED)
 
     def set_runner_part(self, part):
         self.runner_crop_part_var.set(part)
