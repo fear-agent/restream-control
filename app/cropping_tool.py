@@ -357,6 +357,7 @@ class CropPanel(tk.Frame):
             return
         self.refresh_current_race()
         self.refresh_sources(show_message=False)
+        self.update_capture_mode_ui()
         self.select_runner_target(update_status=False)
         self.refresh_memory_status()
         self.update_part_statuses()

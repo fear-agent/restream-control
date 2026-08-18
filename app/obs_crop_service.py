@@ -105,30 +105,45 @@ def designer_crop_targets() -> list[tuple[str, str, str, str]]:
     data = app_state.load_json(LAYOUT_DESIGN_FILE, {})
     if not isinstance(data, dict):
         return []
-    default_layout = app_state.normalize_layout(data.get("layout"))
-    regions = data.get("regions", [])
-    if not isinstance(regions, list):
-        return []
+
+    # Layout designer v2 stores separate 2P and 4P definitions under
+    # ``layouts``.  Keep accepting the original single-layout file as well,
+    # since a user's local state may predate that change.
+    layouts = data.get("layouts")
+    if isinstance(layouts, dict):
+        layout_data = [
+            (app_state.normalize_layout(layout), value)
+            for layout, value in layouts.items()
+            if isinstance(value, dict)
+        ]
+    else:
+        layout_data = [(app_state.normalize_layout(data.get("layout")), data)]
+
     targets: list[tuple[str, str, str, str]] = []
     seen: set[str] = set()
-    for region in regions:
-        if not isinstance(region, dict):
+    for stored_layout, layout_definition in layout_data:
+        default_layout = app_state.normalize_layout(layout_definition.get("layout", stored_layout))
+        regions = layout_definition.get("regions", [])
+        if not isinstance(regions, list):
             continue
-        region_type = str(region.get("type", ""))
-        if region_type not in {"Facecam", "Camera"}:
-            continue
-        layout = app_state.normalize_layout(region.get("layout", default_layout))
-        slot = str(region.get("slot", "")).strip().upper()
-        if slot not in {"R1", "R2", "R3", "R4"}:
-            continue
-        if layout == "2P" and slot not in {"R1", "R2"}:
-            continue
-        source = str(region.get("source", "") or f"{layout} {slot} Facecam").strip()
-        source = source.replace(" Camera", " Facecam")
-        if not source or source in seen:
-            continue
-        seen.add(source)
-        targets.append((source, layout, slot, "Facecam"))
+        for region in regions:
+            if not isinstance(region, dict):
+                continue
+            region_type = str(region.get("type", ""))
+            if region_type not in {"Facecam", "Camera"}:
+                continue
+            layout = app_state.normalize_layout(region.get("layout", default_layout))
+            slot = str(region.get("slot", "")).strip().upper()
+            if slot not in {"R1", "R2", "R3", "R4"}:
+                continue
+            if layout == "2P" and slot not in {"R1", "R2"}:
+                continue
+            source = str(region.get("source", "") or f"{layout} {slot} Facecam").strip()
+            source = source.replace(" Camera", " Facecam")
+            if not source or source in seen:
+                continue
+            seen.add(source)
+            targets.append((source, layout, slot, "Facecam"))
     return targets
 
 
