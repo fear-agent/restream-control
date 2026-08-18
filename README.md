@@ -15,6 +15,8 @@ For normal use, download the latest release ZIP from GitHub Releases.
 
 Keep the extracted folder together. Do not move the exe away from the folders beside it.
 
+To check for future releases from inside the app, open `Settings` and click `Check for Updates`.
+
 ## Required Programs
 
 - Windows 10/11

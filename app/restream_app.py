@@ -23,6 +23,8 @@ from io import BytesIO
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Optional
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 from PIL import Image, ImageTk
 
@@ -33,6 +35,9 @@ import obs_crop_service
 import stream_syncer
 
 APP_TITLE = "Restream Control"
+APP_VERSION = "0.2.2"
+GITHUB_REPOSITORY = "fear-agent/restream-control"
+GITHUB_LATEST_RELEASE_URL = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 BASE_DIR = app_state.APP_DIR
 REPO_ROOT = app_state.REPO_ROOT
 PYTHON = sys.executable
@@ -102,6 +107,12 @@ def playback_engine_key(value: str) -> str:
 
 def playback_display_name(value: str) -> str:
     return "Direct to OBS" if playback_engine_key(value) == "OBS Media Feeds" else "Standard VLC"
+
+
+def release_version_key(value: str) -> tuple[int, ...]:
+    """Return a comparison key for GitHub release tags such as v0.2.2."""
+    numbers = re.findall(r"\d+", str(value))
+    return tuple(int(number) for number in numbers) or (0,)
 
 
 def bundled_or_exists(path: Path) -> bool:
@@ -495,6 +506,11 @@ class RestreamApp(tk.Tk):
         self.vlc_audio_status_var = tk.StringVar(value="Choose an optional VLC output device.")
         self.vlc_audio_devices: dict[str, str] = {}
         self.vlc_audio_combo: Optional[ttk.Combobox] = None
+        self.update_status_var = tk.StringVar(value=f"Installed: v{APP_VERSION}. Check GitHub for a newer release.")
+        self.update_check_button: Optional[tk.Button] = None
+        self.update_download_button: Optional[tk.Button] = None
+        self.update_release_url = ""
+        self.update_download_url = ""
         self.edit_runner_var = tk.StringVar()
         self.edit_display_var = tk.StringVar()
         self.edit_twitch_var = tk.StringVar()
@@ -3538,6 +3554,25 @@ class RestreamApp(tk.Tk):
         self.button(bottom, "Save All", self.save_all_names, primary=True).pack(side="right")
 
     def _build_settings(self, parent: tk.Frame) -> None:
+        updates_panel = self.panel(parent, "Updates")
+        updates_row = tk.Frame(updates_panel, bg=PANEL)
+        updates_row.pack(fill="x", padx=16, pady=(4, 8))
+        self.update_check_button = self.button(updates_row, "Check for Updates", self.check_for_updates, primary=True, compact=True)
+        self.update_check_button.pack(side="left", padx=(0, 8))
+        self.update_download_button = self.button(updates_row, "Open Latest Release", self.open_latest_release, compact=True)
+        self.update_download_button.pack(side="left", padx=8)
+        self.update_download_button.configure(state="disabled")
+        tk.Label(
+            updates_panel,
+            textvariable=self.update_status_var,
+            bg=PANEL,
+            fg=MUTED,
+            font=("Segoe UI", 9),
+            anchor="w",
+            justify="left",
+            wraplength=1100,
+        ).pack(fill="x", padx=16, pady=(0, 12))
+
         folders_panel = self.panel(parent, "Files & Folders")
         folders = tk.Frame(folders_panel, bg=PANEL)
         folders.pack(fill="x", padx=16, pady=(4, 14))
@@ -3664,6 +3699,79 @@ class RestreamApp(tk.Tk):
 
         self.refresh_runner_editor()
         self.refresh_vlc_audio_devices()
+
+    def check_for_updates(self) -> None:
+        if self.update_check_button:
+            self.update_check_button.configure(state="disabled")
+        self.update_status_var.set("Checking GitHub for the latest release...")
+        threading.Thread(target=self.check_for_updates_worker, daemon=True).start()
+
+    def check_for_updates_worker(self) -> None:
+        try:
+            request = Request(
+                GITHUB_LATEST_RELEASE_URL,
+                headers={"Accept": "application/vnd.github+json", "User-Agent": "Restream-Control"},
+            )
+            with urlopen(request, timeout=8) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise RuntimeError("GitHub returned an unexpected response.")
+            tag = str(payload.get("tag_name", "")).strip()
+            release_url = str(payload.get("html_url", "")).strip()
+            if not tag or not release_url:
+                raise RuntimeError("GitHub did not return a release tag.")
+            assets = payload.get("assets", [])
+            download_url = ""
+            if isinstance(assets, list):
+                for asset in assets:
+                    if not isinstance(asset, dict):
+                        continue
+                    name = str(asset.get("name", ""))
+                    if name.lower().startswith("restreamcontrol-") and name.lower().endswith(".zip"):
+                        download_url = str(asset.get("browser_download_url", "")).strip()
+                        break
+            self.after(0, lambda: self.apply_update_check_result(tag, release_url, download_url))
+        except (URLError, TimeoutError, json.JSONDecodeError, RuntimeError) as exc:
+            self.after(0, lambda: self.apply_update_check_error(str(exc)))
+        except Exception as exc:
+            self.after(0, lambda: self.apply_update_check_error(f"Could not check for updates: {exc}"))
+
+    def apply_update_check_result(self, tag: str, release_url: str, download_url: str) -> None:
+        self.update_release_url = release_url
+        self.update_download_url = download_url
+        if self.update_check_button:
+            self.update_check_button.configure(state="normal")
+        if self.update_download_button:
+            self.update_download_button.configure(
+                state="normal",
+                text=f"Download {tag}" if download_url else "Open Latest Release",
+            )
+
+        installed = release_version_key(APP_VERSION)
+        available = release_version_key(tag)
+        length = max(len(installed), len(available))
+        installed += (0,) * (length - len(installed))
+        available += (0,) * (length - len(available))
+        if available > installed:
+            self.update_status_var.set(
+                f"Update available: {tag}. Download it, extract it into a new folder, then run the new Restream Control.exe. Your local data stays separate."
+            )
+        elif available == installed:
+            self.update_status_var.set(f"You are up to date: v{APP_VERSION}.")
+        else:
+            self.update_status_var.set(f"Installed v{APP_VERSION} is newer than the latest published release ({tag}).")
+
+    def apply_update_check_error(self, message: str) -> None:
+        if self.update_check_button:
+            self.update_check_button.configure(state="normal")
+        self.update_status_var.set(f"Update check failed: {message}")
+
+    def open_latest_release(self) -> None:
+        url = self.update_download_url or self.update_release_url
+        if not url:
+            messagebox.showinfo("Check for updates", "Click Check for Updates first.")
+            return
+        webbrowser.open_new_tab(url)
 
     def toggle_source_mapping_editor(self) -> None:
         if self.source_mapping_body is None or self.source_mapping_toggle is None:
