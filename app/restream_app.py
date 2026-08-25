@@ -530,6 +530,7 @@ class RestreamApp(tk.Tk):
         self.audio_mapper_rows: dict[str, dict[str, Any]] = {}
         self.media_feed_status_var = tk.StringVar(value="Select runners on Setup, then start local OBS media feeds here.")
         self.media_feed_quality_var = tk.StringVar(value=str(app_state.load_config().get("media_feed_quality", "Preferred")))
+        self.media_feed_latency_var = tk.StringVar(value=str(app_state.load_config().get("media_feed_latency", "Stable")))
         self.media_feed_rows_frame: Optional[tk.Frame] = None
         self.media_feed_rows: dict[int, dict[str, Any]] = {}
         self.media_feed_refresh_after: Optional[str] = None
@@ -946,6 +947,16 @@ class RestreamApp(tk.Tk):
         )
         quality.pack(side="left")
         quality.bind("<<ComboboxSelected>>", self.on_media_feed_quality_changed)
+        tk.Label(actions, text="Connection", bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(12, 5))
+        latency = ttk.Combobox(
+            actions,
+            textvariable=self.media_feed_latency_var,
+            values=["Stable", "Low latency"],
+            state="readonly",
+            width=11,
+        )
+        latency.pack(side="left")
+        latency.bind("<<ComboboxSelected>>", self.on_media_feed_latency_changed)
         tk.Label(actions, textvariable=self.media_feed_status_var, bg=PANEL, fg=MUTED, font=("Segoe UI", 9), anchor="w").pack(side="left", padx=(12, 0))
 
         urls = tk.Frame(feeds, bg=PANEL_2)
@@ -1008,6 +1019,12 @@ class RestreamApp(tk.Tk):
         selected = self.media_feed_quality_var.get().strip()
         app_state.save_config({"media_feed_quality": selected})
         self.media_feed_status_var.set(f"Direct quality set to {selected}. Restart a feed to use it.")
+
+    def on_media_feed_latency_changed(self, _event: Any = None) -> None:
+        selected = media_feed_service.normalize_latency_mode(self.media_feed_latency_var.get())
+        self.media_feed_latency_var.set(selected)
+        app_state.save_config({"media_feed_latency": selected})
+        self.media_feed_status_var.set(f"Direct connection set to {selected}. Restart a feed to use it.")
 
     def refresh_media_feeds(self, check_obs_video: bool = False) -> None:
         frame = self.media_feed_rows_frame
@@ -1298,6 +1315,9 @@ class RestreamApp(tk.Tk):
             # Let OBS use the GPU decoder when it is available so the final
             # broadcast encoder has more CPU headroom.
             "hw_decode": True,
+            # A small, explicit receiving buffer absorbs normal scheduler and
+            # HLS segment jitter without allowing delay to grow indefinitely.
+            "buffering_mb": 2,
             # 2P and 4P use different UDP address ranges, so sources can
             # remain open and keep playing through scene changes.
             "close_when_inactive": False,
@@ -1345,6 +1365,14 @@ class RestreamApp(tk.Tk):
         except Exception as exc:
             self.log_status(f"Could not repair Direct OBS source settings: {exc}")
             return False
+
+        streaming, recording = self.obs_output_activity(client)
+        if streaming or recording:
+            # Starting a feed does not require an OBS source mutation. Leave
+            # established source settings untouched while broadcasting so a
+            # runner can be started or restarted during a live event.
+            self.log_status("OBS output is active. Leaving Direct media source settings unchanged.")
+            return True
 
         pending: list[tuple[str, dict[str, Any]]] = []
         target_layouts = [app_state.normalize_layout(layout)] if layout is not None else ["2P", "4P"]

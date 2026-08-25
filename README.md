@@ -37,6 +37,10 @@ Choose one method on `Setup`. Cropping, Sync, Audio, and Custom Layout follow th
 
 Direct feeds may be started before or after the OBS output. When OBS is already streaming or recording, `Start Direct OBS Feeds` on Setup automatically starts runners one at a time to avoid initializing every decoder at once. Layout creation and source-setting repairs still require the OBS output to be stopped. Individual runner restart/replace remains available during a live race.
 
+## Sync
+
+The `Sync` screenshot captures the full 2P or 4P OBS race scene in one frame, so every visible timer represents the same instant. For Direct OBS, delays use OBS's native async delay filter and do not restart a runner feed. Direct delays support up to 20 seconds; use VLC Windows for longer delays.
+
 ## Main Workflow
 
 1. Open `Setup`.

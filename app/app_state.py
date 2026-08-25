@@ -24,6 +24,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "vlc_audio_device": "",
     "media_feed_port_base": 5001,
     "media_feed_quality": "Preferred",
+    "media_feed_latency": "Stable",
     "playback_engine": "VLC Windows",
     "obs_websocket": {
         "host": "localhost",

@@ -121,6 +121,8 @@ Optional: in `Settings`, choose `VLC Audio Output` to have Restream Control laun
 8. Open `Sync` if stream timing needs adjustment.
 9. Confirm the OBS scene, audio levels, and saved crops before going live.
 
+The Sync screenshot captures the full race scene in one OBS frame, so the visible timers can be compared accurately. In `OBS Media Feeds` mode, Sync uses OBS's native delay filter without restarting a runner feed. Direct delays support up to 20 seconds; use VLC Windows for longer delays.
+
 ## 8. Troubleshooting
 
 First, open `Setup Wizard` and click `Refresh Checks`.

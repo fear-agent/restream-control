@@ -349,6 +349,22 @@ class CropPanel(tk.Frame):
         if show_message:
             messagebox.showinfo("Sources refreshed", f"Found {len(found)} crop targets in OBS.")
 
+    def ensure_source_location(self, source_name):
+        """Refresh once, then reconnect if OBS's scene-item cache is stale."""
+        if source_name in self.source_locations:
+            return self.source_locations[source_name]
+        try:
+            self.refresh_sources(show_message=False)
+        except Exception:
+            pass
+        if source_name in self.source_locations:
+            return self.source_locations[source_name]
+
+        self.client = None
+        self.connected = False
+        self.connect_to_obs()
+        return self.source_locations.get(source_name)
+
     def refresh_obs_layout(self):
         """Reload current OBS crop items after a custom layout change."""
         if not self.client or not self.connected:
@@ -521,9 +537,7 @@ class CropPanel(tk.Frame):
         if not self.client or not self.connected:
             raise RuntimeError("OBS is not connected.")
         source_name = self.source_name_for_slot_part(slot, "Stream")
-        if source_name not in self.source_locations:
-            self.refresh_sources(show_message=False)
-        location = self.source_locations.get(source_name)
+        location = self.ensure_source_location(source_name)
         if not location:
             raise RuntimeError(f"OBS source not found: {source_name}.")
         container_name, item_id = location
@@ -1066,9 +1080,7 @@ class CropPanel(tk.Frame):
             self.connect_to_obs()
             if not self.client or not self.connected:
                 return False
-        if source_name not in self.source_locations:
-            self.refresh_sources(show_message=False)
-        if source_name not in self.source_locations:
+        if not self.ensure_source_location(source_name):
             messagebox.showerror("Source not found", f"Could not find OBS source:\n\n{source_name}\n\nCheck the source name and click Refresh.")
             return False
         try:

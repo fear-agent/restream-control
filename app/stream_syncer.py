@@ -396,11 +396,11 @@ class SyncPanel(tk.Frame):
     def update_sync_mode_ui(self) -> None:
         if self.is_media_feed_mode():
             self.sync_instruction_var.set(
-                "Capture OBS Timer sources, compare the timer values, then use the calculator. Applying a delay restarts that local feed with a real FFmpeg buffer. Mouse wheel zooms; drag to pan."
+                "Capture one OBS race-scene frame, compare the timer values, then use the calculator. Direct delays use OBS's native async filter without restarting the feed. Mouse wheel zooms; drag to pan."
             )
         else:
             self.sync_instruction_var.set(
-                "Take a screenshot, compare the timer values, then use the calculator below. Mouse wheel zooms; drag to pan."
+                "Capture one OBS race-scene frame so every timer shows the same instant, then use the calculator below. Mouse wheel zooms; drag to pan."
             )
 
     def on_sync_mode_changed(self, _event=None) -> None:
@@ -603,6 +603,17 @@ class SyncPanel(tk.Frame):
         if Image is None or ImageDraw is None:
             raise RuntimeError("Pillow is not available. Install Pillow from requirements.txt.")
 
+        race = app_state.load_current_race()
+        mode = app_state.normalize_layout(race.get("mode", 4))
+        try:
+            return self.build_obs_scene_sync_screenshot(f"{mode} Restream", "timer_sync")
+        except Exception as scene_error:
+            self.root.after(
+                0,
+                self.log_message,
+                f"Could not capture the complete OBS race scene; using VLC window fallback: {scene_error}",
+            )
+
         captures = {}
         for slot in [1, 2, 3, 4]:
             window = self.windows.get(slot)
@@ -646,37 +657,36 @@ class SyncPanel(tk.Frame):
             raise RuntimeError("Pillow is not available. Install Pillow from requirements.txt.")
         race = app_state.load_current_race()
         mode = app_state.normalize_layout(race.get("mode", 4))
-        states = media_feed_service.all_states()
-        captures = {}
+        return self.build_obs_scene_sync_screenshot(f"{mode} Media Restream", "media_timer_sync")
+
+    def build_obs_scene_sync_screenshot(self, scene_name: str, filename_prefix: str) -> Path:
+        """Capture the complete race scene so every timer comes from one OBS frame."""
         client = obs_crop_service.connect()
-        for slot, state in states.items():
-            if state.get("status") != "running":
-                continue
-            response = client.get_source_screenshot(f"{mode} R{slot} Media Stream", "png", 1280, 720, 90)
-            image_data = getattr(response, "image_data", "")
-            if image_data:
-                encoded = image_data.split(",", 1)[1] if "," in image_data else image_data
-                captures[slot] = Image.open(BytesIO(base64.b64decode(encoded))).convert("RGB")
-        if not captures:
-            raise RuntimeError("OBS did not return any running Media Timer source screenshots.")
-        cell_width = max(image.width for image in captures.values())
-        cell_height = max(image.height for image in captures.values())
-        label_height, gap = 28, 8
-        canvas = Image.new("RGB", (cell_width * 2 + gap, (cell_height + label_height) * 2 + gap), (12, 14, 16))
-        draw = ImageDraw.Draw(canvas)
-        positions = {1: (0, 0), 2: (0, cell_height + label_height + gap), 3: (cell_width + gap, 0), 4: (cell_width + gap, cell_height + label_height + gap)}
-        for slot, (x, y) in positions.items():
-            draw.rectangle((x, y, x + cell_width, y + label_height), fill=(16, 17, 19))
-            draw.text((x + 8, y + 7), f"RUNNER {slot}", fill=(249, 250, 251))
-            image = captures.get(slot)
-            if image:
-                canvas.paste(image, (x, y + label_height))
-            else:
-                draw.rectangle((x, y + label_height, x + cell_width, y + label_height + cell_height), outline=(63, 69, 75), width=2)
-                draw.text((x + 8, y + label_height + 8), "Not captured", fill=(156, 163, 175))
+        width, height = 1920, 1080
+        try:
+            video = client.get_video_settings()
+            width = int(getattr(video, "base_width", width) or width)
+            height = int(getattr(video, "base_height", height) or height)
+        except Exception:
+            pass
+
+        try:
+            response = client.get_source_screenshot(scene_name, "png", width, height, 100)
+        except Exception as exc:
+            raise RuntimeError(f"OBS could not capture {scene_name}: {exc}") from exc
+        image_data = getattr(response, "image_data", "")
+        if not image_data:
+            raise RuntimeError(f"OBS returned an empty screenshot for {scene_name}.")
+
+        encoded = image_data.split(",", 1)[1] if "," in image_data else image_data
+        try:
+            image = Image.open(BytesIO(base64.b64decode(encoded))).convert("RGB")
+        except Exception as exc:
+            raise RuntimeError(f"OBS returned an invalid screenshot for {scene_name}.") from exc
+
         SYNC_SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
-        path = SYNC_SCREENSHOT_DIR / f"media_timer_sync_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-        canvas.save(path)
+        path = SYNC_SCREENSHOT_DIR / f"{filename_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        image.save(path)
         return path
 
     def clear_timer_screenshots(self) -> None:
@@ -712,7 +722,7 @@ class SyncPanel(tk.Frame):
         if self.is_media_feed_mode():
             states = media_feed_service.all_states()
             running = sum(1 for state_info in states.values() if state_info.get("status") == "running")
-            self.summary_var.set(f"Detected {running} running local OBS media feed(s). Applying a delay restarts that feed with a buffer.")
+            self.summary_var.set(f"Detected {running} running local OBS media feed(s). Direct delays are applied inside OBS without restarting feeds.")
             if log:
                 self.log_message(f"Refreshed OBS Media Feeds. Found {running} running feed(s).")
             return
@@ -937,12 +947,12 @@ class SyncPanel(tk.Frame):
 
     def _start_media_delay_thread(self, slot: int, seconds: float) -> None:
         self._set_slot_busy(slot, True)
-        self.log_message(f"Restarting R{slot} with a {seconds:g}s FFmpeg buffer.")
+        self.log_message(f"Applying a {seconds:g}s OBS async delay to R{slot}.")
 
         def worker() -> None:
             try:
                 media_feed_service.restart_slot_with_delay(slot, seconds)
-                self.root.after(0, self.log_message, f"R{slot} restarted with a {seconds:g}s media-feed delay.")
+                self.root.after(0, self.log_message, f"OBS is applying a {seconds:g}s delay to R{slot}.")
             except Exception as exc:
                 self.root.after(0, self.log_message, f"ERROR delaying R{slot}: {exc}")
                 self.root.after(0, messagebox.showerror, "Media feed delay failed", str(exc))
@@ -972,7 +982,7 @@ class SyncPanel(tk.Frame):
         if not jobs:
             messagebox.showinfo("No delays", "Enter seconds for one or more runners first.")
             return
-        self.log_message("Restarting media feeds with delays: " + ", ".join(f"R{slot}={seconds:g}s" for slot, seconds in jobs))
+        self.log_message("Applying Direct delays: " + ", ".join(f"R{slot}={seconds:g}s" for slot, seconds in jobs))
         for slot, _seconds in jobs:
             self._set_slot_busy(slot, True)
 
@@ -981,7 +991,7 @@ class SyncPanel(tk.Frame):
                 for slot, seconds in jobs:
                     media_feed_service.restart_slot_with_delay(slot, seconds)
                     time.sleep(0.15)
-                self.root.after(0, self.log_message, "Media-feed delay restarts requested.")
+                self.root.after(0, self.log_message, "OBS async delays applied without feed restarts.")
             except Exception as exc:
                 self.root.after(0, self.log_message, f"ERROR applying media delays: {exc}")
                 self.root.after(0, messagebox.showerror, "Media feed delays failed", str(exc))
@@ -1013,7 +1023,7 @@ class SyncPanel(tk.Frame):
                 for slot in jobs:
                     media_feed_service.restart_slot_with_delay(slot, 0)
                     time.sleep(0.15)
-                self.root.after(0, self.log_message, "All delayed OBS Media Feeds were restarted at live playback.")
+                self.root.after(0, self.log_message, "Removed all Direct OBS sync delays.")
             except Exception as exc:
                 self.root.after(0, self.log_message, f"ERROR returning all media feeds to live: {exc}")
                 self.root.after(0, messagebox.showerror, "Return all to live failed", str(exc))
@@ -1035,7 +1045,7 @@ class SyncPanel(tk.Frame):
             def worker() -> None:
                 try:
                     media_feed_service.restart_slot_with_delay(slot, 0)
-                    self.root.after(0, self.log_message, f"R{slot} restarted without a delay.")
+                    self.root.after(0, self.log_message, f"Removed the Direct OBS delay from R{slot}.")
                 except Exception as exc:
                     self.root.after(0, self.log_message, f"ERROR returning R{slot} to live: {exc}")
                     self.root.after(0, messagebox.showerror, "Return to live failed", str(exc))
