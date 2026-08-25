@@ -35,7 +35,7 @@ import obs_crop_service
 import stream_syncer
 
 APP_TITLE = "Restream Control"
-APP_VERSION = "0.2.2"
+APP_VERSION = "0.2.4"
 GITHUB_REPOSITORY = "fear-agent/restream-control"
 GITHUB_LATEST_RELEASE_URL = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 BASE_DIR = app_state.APP_DIR
