@@ -12,6 +12,15 @@ $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $DistDir = Join-Path $Root "dist\RestreamControl"
 $ReleaseDir = Join-Path $Root "release"
 $ZipPath = Join-Path $ReleaseDir "RestreamControl-$Version.zip"
+$VersionLabel = $Version.TrimStart("v")
+$VersionSource = Get-Content -LiteralPath (Join-Path $Root "app\restream_app.py") -Raw
+$VersionMatch = [regex]::Match($VersionSource, 'APP_VERSION\s*=\s*"([^"]+)"')
+if (!$VersionMatch.Success) {
+    throw "Could not read APP_VERSION from app\restream_app.py."
+}
+if ($Version -ne "dev" -and $VersionMatch.Groups[1].Value -ne $VersionLabel) {
+    throw "Build version $Version does not match app version $($VersionMatch.Groups[1].Value)."
+}
 
 Set-Location $Root
 

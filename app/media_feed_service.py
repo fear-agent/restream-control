@@ -1,4 +1,4 @@
-"""Managed experimental Streamlink -> FFmpeg feeds for OBS Media Sources."""
+"""Managed Streamlink HTTP feeds for OBS Media Sources."""
 from __future__ import annotations
 
 import argparse
@@ -7,7 +7,6 @@ import shutil
 import socket
 import subprocess
 import sys
-import threading
 import time
 import math
 from datetime import datetime
@@ -22,11 +21,9 @@ MAX_AUTO_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
 STABLE_LATENCY_MODE = "Stable"
 LOW_LATENCY_MODE = "Low latency"
-RELAY_SOCKET_BUFFER_BYTES = 8 * 1024 * 1024
-OBS_UDP_SOCKET_BUFFER_BYTES = 1024 * 1024
-OBS_UDP_FIFO_PACKETS = 100_000
 SYNC_FILTER_NAME = "Restream Control Sync Delay"
 MAX_DIRECT_SYNC_DELAY_SECONDS = 20.0
+LOG_TAIL_BYTES = 64 * 1024
 
 
 def normalize_layout(layout: str | int | None = None) -> str:
@@ -39,8 +36,8 @@ def port_base(layout: str | int | None = None) -> int:
         value = value if 1 <= value <= 65400 else 5001
     except (TypeError, ValueError):
         value = 5001
-    # 4P retains the original addresses. 2P needs a separate address range
-    # because OBS Media Sources can otherwise compete for the same UDP feed.
+    # 4P retains the original ports. 2P uses a separate range so both sets of
+    # persistent OBS Media Sources can exist without sharing an HTTP server.
     return value + (100 if normalize_layout(layout) == "2P" else 0)
 
 
@@ -65,16 +62,11 @@ def port_for_slot(slot: int, part: str = "Stream", layout: str | int | None = No
 
 def source_url(slot: int, part: str = "Stream", layout: str | int | None = None) -> str:
     port = port_for_slot(slot, part, layout)
-    return (
-        f"udp://127.0.0.1:{port}"
-        f"?buffer_size={OBS_UDP_SOCKET_BUFFER_BYTES}"
-        f"&fifo_size={OBS_UDP_FIFO_PACKETS}"
-        "&overrun_nonfatal=1"
-    )
+    return f"http://127.0.0.1:{port}/"
 
 
 def feed_source_url(slot: int, layout: str | int | None = None) -> str:
-    """Return the single UDP feed OBS should decode for this runner."""
+    """Return the single local HTTP feed OBS should decode for this runner."""
     return source_url(slot, "Stream", layout)
 
 
@@ -84,6 +76,34 @@ def state_path(slot: int) -> Path:
 
 def log_path(slot: int) -> Path:
     return FEED_DIR / f"runner_{int(slot)}.log"
+
+
+def stream_activity(slot: int) -> str:
+    """Return the current Streamlink session's observed video availability."""
+    path = log_path(slot)
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - LOG_TAIL_BYTES), os.SEEK_SET)
+            text = handle.read().decode("utf-8", errors="replace")
+    except OSError:
+        return "unknown"
+
+    # Logs append across races. Only signals after the latest worker start
+    # belong to the runner currently assigned to this slot.
+    start_index = text.rfind("] Starting ")
+    if start_index >= 0:
+        text = text[start_index:]
+    offline_index = text.rfind("Stream not available")
+    # An HTTP request only proves that OBS reached the local server. Streamlink
+    # can accept that request while the Twitch channel is still unavailable.
+    playing_index = text.rfind("Opening stream:")
+    if offline_index > playing_index:
+        return "offline"
+    if playing_index >= 0:
+        return "playing"
+    return "unknown"
 
 
 def load_state(slot: int) -> dict[str, Any]:
@@ -97,7 +117,20 @@ def write_state(slot: int, **updates: Any) -> None:
     # Remove state left by retired Direct-feed experiments. Current workers do
     # not read these values, and retaining them makes a later race look as if
     # it silently reverted to an older transport mode.
-    for obsolete_key in ("feed_profile", "stability_mode"):
+    for obsolete_key in (
+        "feed_profile",
+        "stability_mode",
+        "ffmpeg_pid",
+        "relay_port",
+        "relay_packets",
+        "relay_bytes",
+        "relay_errors",
+        "relay_last_packet_at",
+        "relay_buffered_bytes",
+        "relay_buffered_packets",
+        "relay_control_supported",
+        "relay_delay_seconds",
+    ):
         existing.pop(obsolete_key, None)
     layout = normalize_layout(existing.get("layout"))
     existing["slot"] = int(slot)
@@ -121,8 +154,6 @@ def prereq_errors() -> list[str]:
     errors = []
     if not command_available("streamlink"):
         errors.append("Streamlink was not found. Install Streamlink and reopen Restream Control.")
-    if not command_available("ffmpeg"):
-        errors.append("FFmpeg was not found. Install FFmpeg and add its bin folder to Windows Path.")
     return errors
 
 
@@ -147,6 +178,7 @@ def is_worker_running(state: dict[str, Any]) -> bool:
 
 def stop_slot(slot: int) -> None:
     state = load_state(slot)
+    layout = normalize_layout(state.get("layout"))
     pid = state.get("worker_pid")
     if isinstance(pid, int) and pid > 0 and is_worker_running(state):
         if os.name == "nt":
@@ -161,14 +193,15 @@ def stop_slot(slot: int) -> None:
                 os.kill(pid, 15)
             except OSError:
                 pass
+    stop_obs_receiver(slot, layout)
     write_state(
         slot,
         status="stopped",
         message="Stopped by Restream Control.",
         worker_pid=0,
         streamlink_pid=0,
-        ffmpeg_pid=0,
-        relay_port=0,
+        http_port=0,
+        obs_video_detected=False,
     )
 
 
@@ -186,7 +219,12 @@ def normalize_latency_mode(value: str | None) -> str:
     return LOW_LATENCY_MODE if str(value or "").strip().lower() == "low latency" else STABLE_LATENCY_MODE
 
 
-def streamlink_command(twitch_name: str, quality: str, latency_mode: str) -> list[str]:
+def streamlink_command(
+    twitch_name: str,
+    quality: str,
+    latency_mode: str,
+    http_port: int,
+) -> list[str]:
     command = ["streamlink"]
     if normalize_latency_mode(latency_mode) == LOW_LATENCY_MODE:
         command.append("--twitch-low-latency")
@@ -195,165 +233,29 @@ def streamlink_command(twitch_name: str, quality: str, latency_mode: str) -> lis
     command.extend([
         "--stream-segment-attempts", "5",
         "--stream-segment-threads", "2",
-        "--stdout",
+        "--retry-open", "3",
+        "--player-external-http",
+        "--player-external-http-interface", "127.0.0.1",
+        "--player-external-http-port", str(int(http_port)),
+        "--player-external-http-continuous", "yes",
         f"https://twitch.tv/{twitch_name}",
         quality,
     ])
     return command
 
 
-def ffmpeg_output_args(url: str, delay_seconds: float | int | str | None = 0) -> list[str]:
-    # Direct sync is handled by OBS's native async-delay filter. Restarting
-    # FFmpeg with its fifo/timeshift muxer resets timestamps and can leave the
-    # live decoder stalled until the runner is relaunched.
-    return ["-f", "mpegts", url]
-
-
-def ffmpeg_command(output_url: str, delay_seconds: float | int | str | None = 0) -> list[str]:
-    return [
-        "ffmpeg", "-hide_banner", "-loglevel", "warning",
-        "-fflags", "+genpts+discardcorrupt",
-        "-i", "pipe:0",
-        "-map", "0:v?", "-map", "0:a?",
-        "-c", "copy",
-        "-avoid_negative_ts", "make_zero",
-        "-flush_packets", "1",
-        *ffmpeg_output_args(output_url, delay_seconds),
-    ]
-
-
-class BufferedUdpRelay:
-    """Forward a private FFmpeg UDP stream to OBS without losing bursts."""
-
-    def __init__(self, forward_port: int, log_file: Any) -> None:
-        self.forward_port = int(forward_port)
-        self.log_file = log_file
-        self.listen_port = 0
-        self.packets = 0
-        self.bytes = 0
-        self.errors = 0
-        self.last_packet_at = 0.0
-        self._socket: socket.socket | None = None
-        self._thread: threading.Thread | None = None
-        self._stop = threading.Event()
-
-    @property
-    def input_url(self) -> str:
-        if self.listen_port <= 0:
-            raise RuntimeError("UDP relay has not started.")
-        return (
-            f"udp://127.0.0.1:{self.listen_port}"
-            f"?pkt_size=1316&buffer_size={RELAY_SOCKET_BUFFER_BYTES}"
-        )
-
-    def start(self) -> None:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        for option in (socket.SO_RCVBUF, socket.SO_SNDBUF):
-            try:
-                sock.setsockopt(socket.SOL_SOCKET, option, RELAY_SOCKET_BUFFER_BYTES)
-            except OSError:
-                pass
-        if os.name == "nt":
-            try:
-                import ctypes
-
-                bytes_returned = ctypes.c_ulong(0)
-                disabled = ctypes.c_ulong(0)
-                ctypes.windll.ws2_32.WSAIoctl(
-                    sock.fileno(),
-                    0x9800000C,  # SIO_UDP_CONNRESET
-                    ctypes.byref(disabled),
-                    ctypes.sizeof(disabled),
-                    None,
-                    0,
-                    ctypes.byref(bytes_returned),
-                    None,
-                    None,
-                )
-            except Exception:
-                pass
-        sock.bind(("127.0.0.1", 0))
-        sock.settimeout(0.05)
-        self.listen_port = int(sock.getsockname()[1])
-        self._socket = sock
-        self._stop.clear()
-        self._thread = threading.Thread(
-            target=self._run,
-            name=f"direct-relay-{self.forward_port}",
-            daemon=True,
-        )
-        self._thread.start()
-        self.log_file.write(
-            f"[{datetime.now().isoformat(timespec='seconds')}] UDP relay "
-            f"127.0.0.1:{self.listen_port} -> 127.0.0.1:{self.forward_port}\n"
-        )
-        self.log_file.flush()
-
-    def close(self) -> None:
-        self._stop.set()
-        thread, self._thread = self._thread, None
-        if thread is not None:
-            thread.join(timeout=1.0)
-        sock, self._socket = self._socket, None
-        if sock is not None:
-            try:
-                sock.close()
-            except OSError:
-                pass
-
-    def snapshot(self) -> dict[str, Any]:
-        return {
-            "relay_port": self.listen_port,
-            "relay_packets": self.packets,
-            "relay_bytes": self.bytes,
-            "relay_errors": self.errors,
-            "relay_last_packet_at": self.last_packet_at,
-        }
-
-    def wait_for_packets(
-        self,
-        processes: tuple[subprocess.Popen[Any], ...],
-        after_packet_count: int = 0,
-        timeout: float = 12.0,
-    ) -> bool:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if self.packets > after_packet_count:
+def wait_for_http_server(process: subprocess.Popen[Any], port: int, timeout: float = 15.0) -> bool:
+    """Wait until Streamlink's loopback HTTP listener accepts connections."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return False
+        try:
+            with socket.create_connection(("127.0.0.1", int(port)), timeout=0.25):
                 return True
-            if any(process.poll() is not None for process in processes):
-                return False
+        except OSError:
             time.sleep(0.1)
-        return self.packets > after_packet_count
-
-    def _run(self) -> None:
-        sock = self._socket
-        if sock is None:
-            return
-        if os.name == "nt":
-            try:
-                import ctypes
-
-                ctypes.windll.kernel32.SetThreadPriority(
-                    ctypes.windll.kernel32.GetCurrentThread(),
-                    2,  # THREAD_PRIORITY_HIGHEST
-                )
-            except Exception:
-                pass
-        destination = ("127.0.0.1", self.forward_port)
-        while not self._stop.is_set():
-            try:
-                data = sock.recv(65536)
-            except socket.timeout:
-                continue
-            except OSError:
-                break
-            try:
-                sock.sendto(data, destination)
-                self.packets += 1
-                self.bytes += len(data)
-                self.last_packet_at = time.time()
-            except OSError:
-                self.errors += 1
+    return False
 
 
 def set_obs_sync_delay(slot: int, layout: str | int | None, delay_seconds: float | int | str) -> None:
@@ -400,7 +302,7 @@ def clear_obs_sync_delay(slot: int, layout: str | int | None) -> None:
 
 
 def restart_obs_receiver(slot: int, layout: str, log_file: Any) -> None:
-    """Reset OBS's UDP decoder when a new sender takes over an existing port."""
+    """Reconnect OBS after a new Streamlink HTTP server takes over a runner port."""
     source_name = f"{normalize_layout(layout)} R{int(slot)} Media Stream"
     try:
         import obs_crop_service
@@ -419,6 +321,36 @@ def restart_obs_receiver(slot: int, layout: str, log_file: Any) -> None:
             f"[{datetime.now().isoformat(timespec='seconds')}] OBS receiver restart skipped: {exc}\n"
         )
         log_file.flush()
+
+
+def stop_obs_receiver(slot: int, layout: str | int | None) -> None:
+    """Stop OBS reconnect attempts after a Direct feed is deliberately stopped."""
+    source_name = f"{normalize_layout(layout)} R{int(slot)} Media Stream"
+    try:
+        import obs_crop_service
+
+        obs_crop_service.connect().trigger_media_input_action(
+            source_name,
+            "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP",
+        )
+    except Exception:
+        # Stopping the worker must still succeed when OBS is closed or the
+        # Direct layout has not been created yet.
+        pass
+
+
+def set_obs_video_detected(slot: int, detected: bool) -> None:
+    """Persist an explicit OBS signal check so automatic UI refreshes keep it."""
+    state = load_state(slot)
+    if state.get("status") != "running":
+        return
+    latency = normalize_latency_mode(str(state.get("latency_mode") or STABLE_LATENCY_MODE))
+    message = (
+        f"OBS video detected. Streamlink HTTP feed is running in {latency} mode."
+        if detected
+        else f"Streamlink HTTP feed ready in {latency} mode. Waiting for OBS video..."
+    )
+    write_state(slot, obs_video_detected=bool(detected), message=message)
 
 
 def start_slot(
@@ -448,7 +380,7 @@ def start_slot(
     write_state(
         slot,
         status="starting",
-        message="Starting Streamlink and FFmpeg...",
+        message="Starting Streamlink HTTP feed...",
         display_name=str(display_name).strip() or clean_twitch,
         twitch_name=clean_twitch,
         quality=str(quality).strip() or "best",
@@ -456,6 +388,7 @@ def start_slot(
         latency_mode=normalized_latency,
         layout=normalized_layout,
         worker_pid=0,
+        obs_video_detected=False,
     )
 
     worker_args = [
@@ -492,7 +425,7 @@ def start_slot(
         creationflags=flags,
         startupinfo=startupinfo,
     )
-    write_state(slot, worker_pid=process.pid, message="Starting Streamlink and FFmpeg...")
+    write_state(slot, worker_pid=process.pid, message="Starting Streamlink HTTP feed...")
 
 
 def restart_slot_with_delay(slot: int, delay_seconds: float | int | str) -> None:
@@ -557,23 +490,24 @@ def worker_main(argv: list[str] | None = None) -> int:
         child_startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         child_startupinfo.wShowWindow = 0
     log_file = log_path(slot).open("a", encoding="utf-8")
-    relay = BufferedUdpRelay(port_for_slot(slot, "Stream", layout), log_file)
+    http_port = port_for_slot(slot, "Stream", layout)
     last_error = ""
     try:
-        relay.start()
-        # OBS decodes this runner once. Stream, Tracker, Timer, and Facecam are
-        # scene-item references to this one relayed input.
-        ffmpeg_cmd = ffmpeg_command(relay.input_url, delay)
+        # OBS decodes this runner once over loopback HTTP. Stream, Tracker,
+        # Timer, and Facecam are scene-item references to this one input.
         for attempt in range(1, MAX_AUTO_RETRIES + 1):
             streamlink = None
-            ffmpeg = None
             try:
                 # A requested low-latency connection gets one attempt. If it
                 # fails, retry with Streamlink's normal HLS edge so one
                 # incompatible Twitch channel cannot remain unusable.
                 active_latency = requested_latency if attempt == 1 else STABLE_LATENCY_MODE
-                streamlink_cmd = streamlink_command(args.twitch_name, args.quality, active_latency)
-                relay_packet_baseline = relay.packets
+                streamlink_cmd = streamlink_command(
+                    args.twitch_name,
+                    args.quality,
+                    active_latency,
+                    http_port,
+                )
                 write_state(
                     slot,
                     status="starting",
@@ -586,7 +520,9 @@ def worker_main(argv: list[str] | None = None) -> int:
                     latency_mode=active_latency,
                     delay_seconds=delay,
                     layout=layout,
-                    **relay.snapshot(),
+                    transport="http",
+                    http_port=http_port,
+                    obs_video_detected=False,
                 )
                 log_file.write(
                     f"\n[{datetime.now().isoformat(timespec='seconds')}] Starting {args.twitch_name}, "
@@ -595,61 +531,40 @@ def worker_main(argv: list[str] | None = None) -> int:
                 log_file.flush()
                 streamlink = subprocess.Popen(
                     streamlink_cmd,
-                    stdout=subprocess.PIPE,
+                    stdout=log_file,
                     stderr=log_file,
                     creationflags=child_flags,
                     startupinfo=child_startupinfo,
                 )
-                assert streamlink.stdout is not None
-                write_state(slot, status="starting", message=f"Starting FFmpeg (attempt {attempt}/{MAX_AUTO_RETRIES})...")
-                ffmpeg = subprocess.Popen(
-                    ffmpeg_cmd,
-                    stdin=streamlink.stdout,
-                    stderr=log_file,
-                    creationflags=child_flags,
-                    startupinfo=child_startupinfo,
-                )
-                streamlink.stdout.close()
+                if not wait_for_http_server(streamlink, http_port):
+                    raise RuntimeError(
+                        f"Streamlink HTTP server did not open 127.0.0.1:{http_port}."
+                    )
                 write_state(
                     slot,
                     status="running",
-                    message=f"FFmpeg output started in {active_latency} mode. Waiting for OBS video...",
+                    message=f"Streamlink HTTP feed ready in {active_latency} mode. Waiting for OBS video...",
                     worker_pid=os.getpid(),
                     streamlink_pid=streamlink.pid,
-                    ffmpeg_pid=ffmpeg.pid,
+                    transport="http",
+                    http_port=http_port,
+                    obs_video_detected=False,
                     retry_attempt=attempt,
-                    **relay.snapshot(),
                 )
-                # OBS leaves UDP Media Sources open after a feed stops. A new
-                # runner starts its timestamps over, so reopen only this input
-                # after the relay receives its first packets instead of
-                # retaining stale A/V clock state from the previous race.
-                receiver_restarted = False
-                if relay.wait_for_packets((streamlink, ffmpeg), relay_packet_baseline):
-                    restart_obs_receiver(slot, layout, log_file)
-                    receiver_restarted = True
-                last_metrics_write = 0.0
+                # The HTTP listener is ready before OBS reconnects. Unlike the
+                # old UDP relay, no packets from the new timestamp timeline can
+                # accumulate in OBS before its demuxer is reopened.
+                restart_obs_receiver(slot, layout, log_file)
                 while True:
                     if streamlink.poll() is not None:
                         last_error = f"Streamlink stopped (exit code {streamlink.returncode})."
                         break
-                    if ffmpeg.poll() is not None:
-                        last_error = f"FFmpeg stopped (exit code {ffmpeg.returncode})."
-                        break
-                    if not receiver_restarted and relay.packets > relay_packet_baseline:
-                        restart_obs_receiver(slot, layout, log_file)
-                        receiver_restarted = True
-                    now = time.monotonic()
-                    if now - last_metrics_write >= 5.0:
-                        write_state(slot, **relay.snapshot())
-                        last_metrics_write = now
                     time.sleep(1)
             except Exception as exc:
                 last_error = str(exc)
             finally:
-                for process in (ffmpeg, streamlink):
-                    if process is not None and process.poll() is None:
-                        process.terminate()
+                if streamlink is not None and streamlink.poll() is None:
+                    streamlink.terminate()
 
             if attempt >= MAX_AUTO_RETRIES:
                 write_state(
@@ -658,8 +573,7 @@ def worker_main(argv: list[str] | None = None) -> int:
                     message=f"{last_error} Retries exhausted.",
                     worker_pid=0,
                     streamlink_pid=0,
-                    ffmpeg_pid=0,
-                    relay_port=0,
+                    http_port=0,
                     retry_attempt=attempt,
                 )
                 return 1
@@ -670,11 +584,9 @@ def worker_main(argv: list[str] | None = None) -> int:
                 message=f"{last_error} Retrying in {RETRY_DELAY_SECONDS}s ({attempt}/{MAX_AUTO_RETRIES}).",
                 worker_pid=os.getpid(),
                 streamlink_pid=0,
-                ffmpeg_pid=0,
+                http_port=http_port,
                 retry_attempt=attempt,
-                **relay.snapshot(),
             )
             time.sleep(RETRY_DELAY_SECONDS)
     finally:
-        relay.close()
         log_file.close()

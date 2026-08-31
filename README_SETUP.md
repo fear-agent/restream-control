@@ -2,6 +2,8 @@
 
 Use this guide when setting up Restream Control on a new Windows machine.
 
+This guide applies to Restream Control v0.3.0.
+
 ## 1. Install Required Programs
 
 Install OBS Studio first: https://obsproject.com/download
@@ -9,7 +11,7 @@ Install OBS Studio first: https://obsproject.com/download
 After opening Restream Control, use `Setup Wizard` to install or check the remaining tools for the playback method you choose:
 
 - `VLC Windows`: VLC and Streamlink.
-- `OBS Media Feeds`: FFmpeg and Streamlink.
+- `OBS Media Feeds`: Streamlink. Direct feeds use a local HTTP connection to OBS.
 
 The wizard uses Windows Package Manager when it is available. Otherwise, `Open Required Downloads` opens the official download pages for the missing tools.
 
@@ -77,12 +79,12 @@ Port: 4455
 Use one of these:
 
 - `Template Setup`: creates the included default scenes and sources for the playback method selected on Setup.
-- `Custom Layout`: lets you draw your own layout and apply it to OBS.
+- `Custom Layout`: lets you draw your own layout and apply it to OBS. Selected boxes show exact position, size, and left/top/right/bottom edge distances for the 1920x1080 canvas.
 - OBS import: import `obs-template\Restream_Control_Template.json` manually in OBS.
 
 Most new users should start with `Template Setup`.
 
-For `OBS Media Feeds`, Template Setup creates one decoded OBS input per runner and reuses it for independently cropped Game, Tracker, and Timer scene items. Custom layouts can add Facecam as another crop of that same input. This keeps only one audio mixer source and one video decoder per runner. `Direct quality` defaults to the preferred quality order and applies after starting or restarting a feed.
+For `OBS Media Feeds`, Template Setup creates one decoded OBS input per runner and reuses it for independently cropped Game, Tracker, and Timer scene items. Custom layouts can add Facecam as another crop of that same input. This keeps only one audio mixer source and one video decoder per runner. `Direct quality` defaults to the preferred quality order, including 576p and 540p variants, and applies after starting or restarting a feed. Direct status distinguishes a ready local server, video playing in OBS, and a runner who has gone offline.
 
 When upgrading an older Direct OBS layout, apply the saved Custom Layout again or use `Create 2P/4P OBS Layouts`. Restream Control replaces its older per-crop inputs so OBS is not decoding the same runner several times.
 

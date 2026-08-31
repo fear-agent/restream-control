@@ -16,45 +16,77 @@ import media_feed_service  # noqa: E402
 
 
 class MediaFeedServiceTests(unittest.TestCase):
-    def test_obs_url_has_receive_buffers(self) -> None:
-        url = media_feed_service.feed_source_url(1, "4P")
-        self.assertIn("buffer_size=1048576", url)
-        self.assertIn("fifo_size=100000", url)
-        self.assertIn("overrun_nonfatal=1", url)
-
-    def test_live_ffmpeg_command_does_not_accelerate_input(self) -> None:
-        command = media_feed_service.ffmpeg_command("udp://127.0.0.1:12345?pkt_size=1316")
-        self.assertNotIn("-readrate", command)
-        self.assertNotIn("-readrate_catchup", command)
-        self.assertEqual(command[-3:], ["-f", "mpegts", "udp://127.0.0.1:12345?pkt_size=1316"])
-
-    def test_delayed_ffmpeg_command_uses_the_persistent_relay(self) -> None:
-        command = media_feed_service.ffmpeg_command(
-            "udp://127.0.0.1:12345?pkt_size=1316",
-            4.25,
+    def test_stream_activity_uses_only_latest_runner_session(self) -> None:
+        log = io.BytesIO(
+            b"[cli][info] Stream not available, will re-fetch streams in 10 sec\n"
+            b"[2026-08-30T18:09:18] Starting runner, attempt 1, mode=Stable, delay=0s\n"
+            b"[cli][info] Got HTTP request from Lavf/62.12.102\n"
+            b"[cli][info] Opening stream: 720p60 (hls)\n"
         )
-        self.assertNotIn("fifo", command)
-        self.assertNotIn("-timeshift", command)
-        self.assertEqual(command[-3:], ["-f", "mpegts", "udp://127.0.0.1:12345?pkt_size=1316"])
+        with mock.patch.object(Path, "open", return_value=log):
+            self.assertEqual(media_feed_service.stream_activity(1), "playing")
 
-    def test_udp_relay_forwards_packets(self) -> None:
-        receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        receiver.bind(("127.0.0.1", 0))
-        receiver.settimeout(2.0)
-        relay = media_feed_service.BufferedUdpRelay(receiver.getsockname()[1], io.StringIO())
-        sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    def test_stream_activity_reports_ended_current_stream(self) -> None:
+        log = io.BytesIO(
+            b"[2026-08-30T18:09:18] Starting runner, attempt 1, mode=Stable, delay=0s\n"
+            b"[cli][info] Opening stream: 720p60 (hls)\n"
+            b"[cli][info] Stream not available, will re-fetch streams in 10 sec\n"
+        )
+        with mock.patch.object(Path, "open", return_value=log):
+            self.assertEqual(media_feed_service.stream_activity(1), "offline")
+
+    def test_stream_activity_reports_unknown_before_obs_requests_video(self) -> None:
+        log = io.BytesIO(
+            b"[2026-08-30T18:09:18] Starting runner, attempt 1, mode=Stable, delay=0s\n"
+            b"[cli][info] Starting server, access with one of:\n"
+            b"[cli][info] Got HTTP request from Lavf/62.12.102\n"
+        )
+        with mock.patch.object(Path, "open", return_value=log):
+            self.assertEqual(media_feed_service.stream_activity(1), "unknown")
+
+    def test_obs_url_is_layout_specific_loopback_http(self) -> None:
+        self.assertEqual(media_feed_service.feed_source_url(1, "4P"), "http://127.0.0.1:5001/")
+        self.assertEqual(media_feed_service.feed_source_url(1, "2P"), "http://127.0.0.1:5101/")
+
+    def test_streamlink_command_serves_persistent_local_http(self) -> None:
+        command = media_feed_service.streamlink_command("runner", "720p", "Stable", 5101)
+        self.assertIn("--player-external-http", command)
+        self.assertIn("--player-external-http-continuous", command)
+        self.assertIn("--retry-open", command)
+        self.assertNotIn("--stdout", command)
+        self.assertNotIn("ffmpeg", command)
+        self.assertEqual(command[-2:], ["https://twitch.tv/runner", "720p"])
+        port_index = command.index("--player-external-http-port")
+        self.assertEqual(command[port_index + 1], "5101")
+
+    def test_wait_for_http_server_detects_listener(self) -> None:
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+
+        class FakeProcess:
+            @staticmethod
+            def poll() -> None:
+                return None
+
         try:
-            relay.start()
-            payload = bytes(range(188)) * 7
-            sender.sendto(payload, ("127.0.0.1", relay.listen_port))
-            received, _address = receiver.recvfrom(65536)
-            self.assertEqual(received, payload)
-            self.assertGreaterEqual(relay.packets, 1)
-            self.assertEqual(relay.errors, 0)
+            self.assertTrue(
+                media_feed_service.wait_for_http_server(
+                    FakeProcess(),
+                    listener.getsockname()[1],
+                    timeout=0.5,
+                )
+            )
         finally:
-            sender.close()
-            relay.close()
-            receiver.close()
+            listener.close()
+
+    def test_direct_prerequisites_do_not_require_ffmpeg(self) -> None:
+        with mock.patch.object(
+            media_feed_service,
+            "command_available",
+            side_effect=lambda name: name == "streamlink",
+        ):
+            self.assertEqual(media_feed_service.prereq_errors(), [])
 
     def test_running_feed_delay_uses_obs_filter_without_starting_worker(self) -> None:
         state = {
@@ -133,6 +165,56 @@ class MediaFeedServiceTests(unittest.TestCase):
                 ("2P R2 Media Stream", "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART"),
             ],
         )
+
+    def test_obs_receiver_stop_uses_stop_action(self) -> None:
+        actions: list[tuple[str, str]] = []
+
+        class FakeClient:
+            def trigger_media_input_action(self, source_name: str, action: str) -> None:
+                actions.append((source_name, action))
+
+        fake_module = types.SimpleNamespace(connect=lambda: FakeClient())
+        with mock.patch.dict(sys.modules, {"obs_crop_service": fake_module}):
+            media_feed_service.stop_obs_receiver(4, "4P")
+
+        self.assertEqual(
+            actions,
+            [
+                ("4P R4 Media Stream", "OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP"),
+            ],
+        )
+
+    def test_obs_video_detection_updates_running_status(self) -> None:
+        state = {"status": "running", "latency_mode": "Stable"}
+        with (
+            mock.patch.object(media_feed_service, "load_state", return_value=state),
+            mock.patch.object(media_feed_service, "write_state") as write_state,
+        ):
+            media_feed_service.set_obs_video_detected(2, True)
+
+        write_state.assert_called_once_with(
+            2,
+            obs_video_detected=True,
+            message="OBS video detected. Streamlink HTTP feed is running in Stable mode.",
+        )
+
+    def test_write_state_removes_retired_relay_fields(self) -> None:
+        state = {
+            "layout": "2P",
+            "relay_buffered_bytes": 10,
+            "relay_buffered_packets": 2,
+            "relay_control_supported": True,
+            "relay_delay_seconds": 1.5,
+        }
+        with (
+            mock.patch.object(media_feed_service, "load_state", return_value=state.copy()),
+            mock.patch.object(media_feed_service, "port_base", return_value=5101),
+            mock.patch.object(media_feed_service.app_state, "save_json") as save_json,
+        ):
+            media_feed_service.write_state(1, status="running")
+
+        saved = save_json.call_args.args[1]
+        self.assertFalse(any(key.startswith("relay_") for key in saved))
 
 
 if __name__ == "__main__":

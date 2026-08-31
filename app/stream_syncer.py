@@ -495,7 +495,13 @@ class SyncPanel(tk.Frame):
         try:
             self.root.update_idletasks()
             image = Image.open(path).convert("RGB")
-            self.timer_preview_source = self.crop_timer_preview_image(image, slots or [1, 2, 3, 4])
+            race = app_state.load_current_race()
+            layout = app_state.normalize_layout(race.get("mode", 4))
+            self.timer_preview_source = self.crop_timer_preview_image(
+                image,
+                slots or [1, 2, 3, 4],
+                layout,
+            )
             self.draw_timer_preview()
         except Exception as exc:
             self.timer_preview_canvas.delete("all")
@@ -541,9 +547,14 @@ class SyncPanel(tk.Frame):
         self.timer_preview_offset = [offset_x + event.x - start_x, offset_y + event.y - start_y]
         self.draw_timer_preview()
 
-    def crop_timer_preview_image(self, image, slots: list[int]):
+    def crop_timer_preview_image(self, image, slots: list[int], layout: str = "4P"):
         slots = sorted(set(slots))
         if not slots:
+            return image
+        if app_state.normalize_layout(layout) == "2P" and self.is_media_feed_mode():
+            # Direct 2P scenes place R1 and R2 side by side in one complete
+            # OBS frame. The quadrant extraction below is only valid for the
+            # column-major 4P layout and would splice the 2P frame incorrectly.
             return image
         gap = 8
         label_height = 28

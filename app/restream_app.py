@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-Restream Control App v3.1
-Main control surface for setup, embedded sync, cropping launcher, and event tools.
-"""
+"""Main Restream Control desktop application."""
 from __future__ import annotations
 
 import importlib.util
@@ -35,7 +32,7 @@ import obs_crop_service
 import stream_syncer
 
 APP_TITLE = "Restream Control"
-APP_VERSION = "0.2.4"
+APP_VERSION = "0.3.0"
 GITHUB_REPOSITORY = "fear-agent/restream-control"
 GITHUB_LATEST_RELEASE_URL = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 BASE_DIR = app_state.APP_DIR
@@ -98,6 +95,28 @@ LAYOUT_REGION_TYPES = ["Game", "Tracker", "Timer", "Facecam", "Runner Name", "Co
 MAX_EXTRA_TEXT_REGIONS = 3
 PLAYBACK_STANDARD = "Standard: VLC Windows"
 PLAYBACK_DIRECT = "Direct to OBS: Media Feeds"
+PREFERRED_DIRECT_QUALITY = (
+    "720p60,720p,576p60,576p,540p60,540p,"
+    "480p60,480p,360p60,360p,1080p60,1080p,best"
+)
+
+
+def layout_geometry(region: dict[str, Any]) -> dict[str, int]:
+    """Return pixel dimensions and margins for a 1920x1080 designer region."""
+    left = max(0, min(DESIGN_WIDTH, int(round(float(region.get("x", 0))))))
+    top = max(0, min(DESIGN_HEIGHT, int(round(float(region.get("y", 0))))))
+    right_edge = max(left, min(DESIGN_WIDTH, int(round(float(region.get("x", 0)) + float(region.get("w", 0))))))
+    bottom_edge = max(top, min(DESIGN_HEIGHT, int(round(float(region.get("y", 0)) + float(region.get("h", 0))))))
+    return {
+        "x": left,
+        "y": top,
+        "w": right_edge - left,
+        "h": bottom_edge - top,
+        "left": left,
+        "top": top,
+        "right": DESIGN_WIDTH - right_edge,
+        "bottom": DESIGN_HEIGHT - bottom_edge,
+    }
 
 
 def playback_engine_key(value: str) -> str:
@@ -110,7 +129,7 @@ def playback_display_name(value: str) -> str:
 
 
 def release_version_key(value: str) -> tuple[int, ...]:
-    """Return a comparison key for GitHub release tags such as v0.2.2."""
+    """Return a comparison key for GitHub release tags such as v0.3.0."""
     numbers = re.findall(r"\d+", str(value))
     return tuple(int(number) for number in numbers) or (0,)
 
@@ -459,7 +478,7 @@ class RunnerRow:
 class RestreamApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title(APP_TITLE)
+        self.title(f"{APP_TITLE} v{APP_VERSION}")
         self.geometry("1680x960")
         self.minsize(1400, 820)
         # Crop and sync both work with full-size 16:9 screenshots. Starting
@@ -657,7 +676,14 @@ class RestreamApp(tk.Tk):
             except Exception:
                 pass
         title = tk.Label(sidebar, text="Restream Control", bg=SIDEBAR, fg=TEXT, font=("Segoe UI", 10, "bold"), justify="center", wraplength=120)
-        title.pack(anchor="center", padx=12, pady=(0, 16))
+        title.pack(anchor="center", padx=12, pady=(0, 2))
+        tk.Label(
+            sidebar,
+            text=f"v{APP_VERSION}",
+            bg=SIDEBAR,
+            fg=MUTED,
+            font=("Segoe UI", 9),
+        ).pack(anchor="center", pady=(0, 14))
 
         nav_labels = {
             "Custom OBS Layout": "Custom Layout",
@@ -912,7 +938,7 @@ class RestreamApp(tk.Tk):
             return
         if playback_engine_key(self.playback_engine_var.get()) == "OBS Media Feeds":
             button.configure(text="Start Direct OBS Feeds")
-            self.playback_help_var.set("No VLC windows. Sends each runner's video and audio directly to OBS through Streamlink and FFmpeg.")
+            self.playback_help_var.set("No VLC windows. Sends each runner's video and audio directly to OBS through a local Streamlink feed.")
         else:
             button.configure(text="Launch VLC Windows")
             self.playback_help_var.set("Opens one VLC window per runner for video, audio, cropping, and sync.")
@@ -922,7 +948,7 @@ class RestreamApp(tk.Tk):
         tk.Label(
             feeds,
             text=(
-                "No VLC windows. Each runner uses Streamlink and FFmpeg to send a local feed directly to OBS. "
+                "No VLC windows. Each runner uses a local Streamlink HTTP feed directly in OBS. "
                 "OBS decodes each runner once, then uses independent Stream, Tracker, Timer, and custom Facecam scene items. "
                 "Choose Direct to OBS on Setup before using this workflow."
             ),
@@ -1013,7 +1039,7 @@ class RestreamApp(tk.Tk):
             return "best"
         if selected in {"540p", "480p", "360p"}:
             return selected
-        return str(app_state.load_config().get("quality", "best"))
+        return PREFERRED_DIRECT_QUALITY
 
     def on_media_feed_quality_changed(self, _event: Any = None) -> None:
         selected = self.media_feed_quality_var.get().strip()
@@ -1078,17 +1104,33 @@ class RestreamApp(tk.Tk):
             twitch = runner.twitch_name if runner else str(state.get("twitch_name") or "")
             status = str(state.get("status") or "stopped").title()
             message = str(state.get("message") or "Not running")
+            activity = media_feed_service.stream_activity(slot) if status == "Running" else "unknown"
             obs_message = obs_states.get(slot)
             if obs_message:
-                message = f"{message} | {obs_message}"
-            color = GOOD if status == "Running" else (WARN if status in {"Starting", "Retrying"} else (DANGER if status == "Failed" else MUTED))
-            active = active or status in {"Starting", "Retrying", "Running"}
+                detected = obs_message == "OBS video detected"
+                if bool(state.get("obs_video_detected")) != detected:
+                    media_feed_service.set_obs_video_detected(slot, detected)
+                if detected:
+                    latency = str(state.get("latency_mode") or "Stable")
+                    message = f"OBS video detected. Streamlink HTTP feed is running in {latency} mode."
+                else:
+                    message = f"{message} | {obs_message}"
+            if status == "Running" and activity == "offline":
+                status = "Offline"
+                message = "Runner is offline. Local feed is waiting for Twitch to return."
+            elif status == "Running" and activity == "playing":
+                status = "Playing"
+                message = "Video is flowing through the local feed to OBS."
+            elif status == "Running":
+                status = "Ready"
+            color = GOOD if status in {"Ready", "Playing"} else (WARN if status in {"Starting", "Retrying", "Offline"} else (DANGER if status == "Failed" else MUTED))
+            active = active or status in {"Starting", "Retrying", "Ready", "Playing", "Offline"}
             labels = self.media_feed_rows[slot]
             labels["name"].configure(text=name)
             labels["twitch"].configure(text=f"twitch.tv/{twitch}" if twitch else "")
             labels["status"].configure(text=status, fg=color)
             labels["message"].configure(text=message)
-            is_running = status in {"Starting", "Retrying", "Running"}
+            is_running = status in {"Starting", "Retrying", "Ready", "Playing", "Offline"}
             labels["start"].configure(text="Restart Feed" if is_running else "Start Feed")
             labels["stop"].configure(state="normal" if is_running else "disabled")
         if active and self.current_page == "Media Feeds":
@@ -1266,7 +1308,7 @@ class RestreamApp(tk.Tk):
         self.refresh_media_feeds()
 
     def stop_all_media_feeds(self) -> None:
-        if not messagebox.askyesno("Stop local feeds", "Stop all Streamlink/FFmpeg local feeds?"):
+        if not messagebox.askyesno("Stop local feeds", "Stop all local Streamlink feeds?"):
             return
         self._media_bulk_start_token = None
         self._media_bulk_start_active = False
@@ -1318,7 +1360,7 @@ class RestreamApp(tk.Tk):
             # A small, explicit receiving buffer absorbs normal scheduler and
             # HLS segment jitter without allowing delay to grow indefinitely.
             "buffering_mb": 2,
-            # 2P and 4P use different UDP address ranges, so sources can
+            # 2P and 4P use different local HTTP ports, so sources can
             # remain open and keep playing through scene changes.
             "close_when_inactive": False,
             "restart_on_activate": False,
@@ -1367,12 +1409,6 @@ class RestreamApp(tk.Tk):
             return False
 
         streaming, recording = self.obs_output_activity(client)
-        if streaming or recording:
-            # Starting a feed does not require an OBS source mutation. Leave
-            # established source settings untouched while broadcasting so a
-            # runner can be started or restarted during a live event.
-            self.log_status("OBS output is active. Leaving Direct media source settings unchanged.")
-            return True
 
         pending: list[tuple[str, dict[str, Any]]] = []
         target_layouts = [app_state.normalize_layout(layout)] if layout is not None else ["2P", "4P"]
@@ -1387,14 +1423,21 @@ class RestreamApp(tk.Tk):
                     response = client.get_input_settings(source_name)
                     current = self.obs_response_value(response, "inputSettings", "input_settings", default={})
                     current = current if isinstance(current, dict) else {}
-                    if any(current.get(key) != value for key, value in expected.items()):
-                        pending.append((source_name, expected))
+                    keys = ("input",) if streaming or recording else tuple(expected)
+                    if any(current.get(key) != expected.get(key) for key in keys):
+                        settings = {"input": expected["input"]} if streaming or recording else expected
+                        pending.append((source_name, settings))
                 except Exception:
-                    pending.append((source_name, self.media_source_settings(media_feed_service.feed_source_url(slot, target_layout))))
+                    expected = self.media_source_settings(media_feed_service.feed_source_url(slot, target_layout))
+                    settings = {"input": expected["input"]} if streaming or recording else expected
+                    pending.append((source_name, settings))
 
         if not pending:
             return True
-        if not self.direct_layout_mutation_allowed(client, "change Direct media source settings"):
+        if not (streaming or recording) and not self.direct_layout_mutation_allowed(
+            client,
+            "change Direct media source settings",
+        ):
             return False
 
         repaired = 0
@@ -1406,7 +1449,10 @@ class RestreamApp(tk.Tk):
                 self.log_status(f"Could not repair {source_name}: {exc}")
                 return False
         if repaired:
-            self.log_status(f"Repaired Direct OBS connection settings for {repaired} runner feed(s).")
+            detail = " while OBS output was active" if streaming or recording else ""
+            self.log_status(
+                f"Repaired Direct OBS connection settings for {repaired} runner feed(s){detail}."
+            )
         return True
 
     def direct_media_layout_ready(self, layout: str | int, slots: list[int]) -> bool:
@@ -2553,7 +2599,36 @@ class RestreamApp(tk.Tk):
         image_layer = str(region.get("layer", "") or "").strip()
         self.layout_image_region_layer_var.set(image_layer if image_layer in {"Behind feeds", "Above feeds", "Above overlay"} else "Above feeds")
         self.layout_text_var.set(str(region.get("text", "") or ""))
-        self.layout_region_details_var.set(self.layout_region_label(region))
+        self.update_layout_geometry_details()
+
+    def selected_layout_bounds(self) -> tuple[Optional[dict[str, float]], int]:
+        self.sync_layout_selected_ids()
+        selected = [
+            region for region in self.layout_regions
+            if str(region.get("id", "")) in self.layout_selected_ids
+        ]
+        if not selected:
+            return None, 0
+        min_x = min(float(region.get("x", 0)) for region in selected)
+        min_y = min(float(region.get("y", 0)) for region in selected)
+        max_x = max(float(region.get("x", 0)) + float(region.get("w", 0)) for region in selected)
+        max_y = max(float(region.get("y", 0)) + float(region.get("h", 0)) for region in selected)
+        return {"x": min_x, "y": min_y, "w": max_x - min_x, "h": max_y - min_y}, len(selected)
+
+    def update_layout_geometry_details(self) -> None:
+        bounds, count = self.selected_layout_bounds()
+        if bounds is None:
+            self.layout_region_details_var.set("Select a region.")
+            return
+        geometry = layout_geometry(bounds)
+        region = self.selected_layout_region()
+        label = self.layout_region_label(region) if count == 1 and region is not None else f"{count} boxes"
+        self.layout_region_details_var.set(
+            f"{label}  |  X {geometry['x']}  Y {geometry['y']}  "
+            f"W {geometry['w']}  H {geometry['h']}  |  "
+            f"Edges: L {geometry['left']}  T {geometry['top']}  "
+            f"R {geometry['right']}  B {geometry['bottom']}"
+        )
 
     def choose_layout_region_image(self) -> None:
         path = filedialog.askopenfilename(
@@ -2790,6 +2865,52 @@ class RestreamApp(tk.Tk):
             canvas.create_text(sx + 8, sy + 8, text=label, fill="white", anchor="nw", font=("Segoe UI", max(9, int(12 * scale)), "bold"))
             if selected:
                 canvas.create_rectangle(ex - 10, ey - 10, ex + 3, ey + 3, outline="white", fill=color)
+        self.update_layout_geometry_details()
+        self.draw_layout_measurement_guides(canvas)
+
+    def draw_layout_measurement_guides(self, canvas: tk.Canvas) -> None:
+        bounds, _count = self.selected_layout_bounds()
+        if bounds is None:
+            return
+        x0, y0, draw_w, draw_h, _scale = self.layout_canvas_bounds()
+        sx, sy = self.design_to_screen(float(bounds["x"]), float(bounds["y"]))
+        ex, ey = self.design_to_screen(
+            float(bounds["x"]) + float(bounds["w"]),
+            float(bounds["y"]) + float(bounds["h"]),
+        )
+        geometry = layout_geometry(bounds)
+        guide = "#d1d5db"
+        center_x = (sx + ex) / 2
+        center_y = (sy + ey) / 2
+
+        def label(x: float, y: float, text: str) -> None:
+            text_id = canvas.create_text(x, y, text=text, fill="white", font=("Segoe UI", 9, "bold"))
+            box = canvas.bbox(text_id)
+            if box is None:
+                return
+            background_id = canvas.create_rectangle(
+                box[0] - 4,
+                box[1] - 2,
+                box[2] + 4,
+                box[3] + 2,
+                fill=INPUT_BG,
+                outline=BORDER,
+            )
+            canvas.tag_lower(background_id, text_id)
+
+        canvas.create_line(x0, center_y, sx, center_y, fill=guide, dash=(4, 3), width=1)
+        canvas.create_line(ex, center_y, x0 + draw_w, center_y, fill=guide, dash=(4, 3), width=1)
+        canvas.create_line(center_x, y0, center_x, sy, fill=guide, dash=(4, 3), width=1)
+        canvas.create_line(center_x, ey, center_x, y0 + draw_h, fill=guide, dash=(4, 3), width=1)
+
+        if sx - x0 >= 48:
+            label((x0 + sx) / 2, center_y, f"L {geometry['left']}")
+        if x0 + draw_w - ex >= 48:
+            label((ex + x0 + draw_w) / 2, center_y, f"R {geometry['right']}")
+        if sy - y0 >= 34:
+            label(center_x, (y0 + sy) / 2, f"T {geometry['top']}")
+        if y0 + draw_h - ey >= 34:
+            label(center_x, (ey + y0 + draw_h) / 2, f"B {geometry['bottom']}")
 
     def load_layout_background(self) -> None:
         layout = app_state.normalize_layout(self.layout_mode_var.get())
@@ -4677,16 +4798,7 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
                 "download_url": "https://streamlink.github.io/install.html",
             },
         ]
-        if playback_engine_key(self.playback_engine_var.get()) == "OBS Media Feeds":
-            requirements.append(
-                {
-                    "name": "FFmpeg",
-                    "installed": lambda: media_feed_service.command_available("ffmpeg"),
-                    "winget_id": "Gyan.FFmpeg",
-                    "download_url": "https://www.gyan.dev/ffmpeg/builds/",
-                }
-            )
-        else:
+        if playback_engine_key(self.playback_engine_var.get()) != "OBS Media Feeds":
             requirements.append(
                 {
                     "name": "VLC",
@@ -6398,9 +6510,7 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             (importlib.util.find_spec("obsws_python") is not None, "Python package: obsws-python"),
             (self.streamlink_available(), "Command available: streamlink"),
         ]
-        if playback_engine_key(self.playback_engine_var.get()) == "OBS Media Feeds":
-            results.append((media_feed_service.command_available("ffmpeg"), "Command available: ffmpeg"))
-        else:
+        if playback_engine_key(self.playback_engine_var.get()) != "OBS Media Feeds":
             results.append((self.vlc_available(), "VLC installed or available on PATH"))
         if include_obs:
             results.append((obs_ok, "OBS websocket connection"))
@@ -6426,6 +6536,7 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
         lines = [
             "Restream Control Diagnostics",
             "-" * 32,
+            f"Version: v{APP_VERSION}",
             f"Packaged exe: {'yes' if app_state.IS_FROZEN else 'no'}",
             f"Python: {sys.version.split()[0]}",
             f"Platform: {sys.platform}",
@@ -6437,7 +6548,6 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             f"State folder: {app_state.STATE_DIR}",
             f"VLC found: {'yes' if self.vlc_available() else 'no'}",
             f"Streamlink found: {'yes' if self.streamlink_available() else 'no'}",
-            f"FFmpeg found: {'yes' if media_feed_service.command_available('ffmpeg') else 'no'}",
             f"Playback engine: {playback_display_name(self.playback_engine_var.get())}",
         ]
         obs_config = app_state.load_config().get("obs_websocket", {})

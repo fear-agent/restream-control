@@ -2,7 +2,16 @@
 
 Restream Control is a Windows app for running 2-player and 4-player restreams in OBS Studio.
 
-It supports two playback methods: Streamlink/VLC windows, or Streamlink/FFmpeg local feeds sent directly to OBS. It also writes runner and commentator text files, saves crop presets per runner, helps sync delayed streams, controls OBS audio sources, and can create OBS layouts from either the included template or a custom drawn layout.
+It supports two playback methods: Streamlink/VLC windows, or local Streamlink HTTP feeds sent directly to OBS. It also writes runner and commentator text files, saves crop presets per runner, helps sync delayed streams, controls OBS audio sources, and can create OBS layouts from either the included template or a custom drawn layout.
+
+## What's New in v0.3.0
+
+- Direct OBS now uses persistent local Streamlink HTTP feeds. The retired FFmpeg/UDP relay is no longer required.
+- Direct feeds can be started, restarted, and replaced while OBS is live, with staggered multi-runner startup and automatic migration of older Direct source URLs.
+- Direct feed rows distinguish `Ready`, `Playing`, and `Offline`, and wait for an offline runner to return without requiring a relaunch.
+- Preferred quality now includes 576p and 540p source variants before falling back to 480p.
+- Direct sync uses OBS's native delay filter, and the 2P sync preview preserves the complete simultaneous OBS screenshot.
+- Custom Layout shows live position, size, and edge-distance measurements while boxes are drawn, moved, resized, or nudged.
 
 ## Download
 
@@ -22,7 +31,7 @@ To check for future releases from inside the app, open `Settings` and click `Che
 - Windows 10/11
 - OBS Studio
 - `VLC Windows` playback: VLC and Streamlink
-- `OBS Media Feeds` playback: FFmpeg and Streamlink
+- `OBS Media Feeds` playback: Streamlink
 
 Python is not required when using the release ZIP.
 
@@ -33,7 +42,7 @@ Open `Setup Wizard` after starting the app. It checks the tools required for the
 Choose one method on `Setup`. Cropping, Sync, Audio, and Custom Layout follow that choice automatically.
 
 - `Standard: VLC Windows`: each runner opens in a VLC window.
-- `Direct to OBS: Media Feeds`: no VLC windows. Streamlink and FFmpeg send one feed per runner directly to OBS. OBS decodes each runner once and reuses that input for independently cropped Game, Tracker, Timer, and Facecam items. On first use, open `Direct OBS` and use `First-time Direct OBS setup` > `Create Direct Layouts`. Its `Direct quality` control applies when a feed is started or restarted.
+- `Direct to OBS: Media Feeds`: no VLC windows. Streamlink serves one local HTTP feed per runner directly to OBS. OBS decodes each runner once and reuses that input for independently cropped Game, Tracker, Timer, and Facecam items. Existing Direct layouts from v0.2.4 or earlier are migrated automatically from the retired UDP transport when the next race starts, including while OBS output is active. On first use, open `Direct OBS` and use `First-time Direct OBS setup` > `Create Direct Layouts`. Its `Direct quality` control applies when a feed is started or restarted.
 
 Direct feeds may be started before or after the OBS output. When OBS is already streaming or recording, `Start Direct OBS Feeds` on Setup automatically starts runners one at a time to avoid initializing every decoder at once. Layout creation and source-setting repairs still require the OBS output to be stopped. Individual runner restart/replace remains available during a live race.
 
@@ -57,7 +66,7 @@ Saved crops are remembered by runner and layout, so repeat runners usually load 
 
 Use `Template Setup` if you want the included default Restream Control scenes and source names. It follows the playback method selected on Setup, creating either VLC Restream scenes or Direct OBS Media Restream scenes.
 
-Use `Custom OBS Layout` if you want to draw your own OBS layout inside the app.
+Use `Custom OBS Layout` if you want to draw your own OBS layout inside the app. Selected boxes show exact `X`, `Y`, width, height, and distance from every 1920x1080 canvas edge. Measurement guides update while moving or resizing boxes, and multiple selected boxes show their combined bounds.
 
 Restream Control supports OBS Studio with obs-websocket. Streamlabs Desktop is not supported.
 
