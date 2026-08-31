@@ -39,7 +39,7 @@ ROOT = app_state.APP_DIR
 REPO_ROOT = app_state.REPO_ROOT
 RUNNERS_CSV = app_state.config_path("runner_csv")
 OBS_TEXT_DIR = app_state.config_path("obs_text_dir")
-LAST_SETUP = ROOT / "race_setup_last.txt"
+LAST_SETUP = app_state.LAST_SETUP_FILE
 # Prefer 720-class streams for consistent VLC window size, but allow 1080 if Twitch offers no lower transcodes.
 QUALITY = str(app_state.load_config().get("quality", app_state.DEFAULT_CONFIG["quality"]))
 
@@ -574,6 +574,7 @@ def capture_runner_screenshots(default_slots: str | None = None) -> None:
         "-ExecutionPolicy", "Bypass",
         "-File", str(ps1),
         "-SlotList", slots,
+        "-OutputDir", str(app_state.config_path("screenshot_dir")),
     ]
     try:
         result = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True)
@@ -588,7 +589,7 @@ def capture_runner_screenshots(default_slots: str | None = None) -> None:
 
 
 def delete_screenshots() -> None:
-    folder = ROOT / "crop_screenshots"
+    folder = app_state.config_path("screenshot_dir")
     if not folder.exists():
         print(f"No screenshot folder found: {folder}")
         return

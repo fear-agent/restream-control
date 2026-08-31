@@ -35,6 +35,27 @@ Restream Control.exe
 
 Keep the extracted folder together.
 
+Personal data is kept outside that folder at:
+
+```text
+%LOCALAPPDATA%\RestreamControl
+```
+
+This includes settings, runners, crops, custom layouts, screenshots, generated OBS text, and logs.
+
+### Updating an Existing Copy
+
+For future packaged versions, open `Settings`, click `Check for Updates`, then click `Install`. Restream Control verifies the release checksum, stops Direct feeds, replaces only application files, and restarts. The previous application version is kept for automatic or manual rollback.
+
+Use `Restore Previous Version` in Settings if you need to roll back. Source/BAT installations should be updated with GitHub Desktop.
+
+For the one-time migration from v0.2.x or an earlier portable v0.3.0 build, use either method:
+
+1. Extract the updated files over the previous Restream Control folder and launch it once. The old portable data is copied without being deleted.
+2. Extract into a new folder, launch it, open `Settings`, click `Import Previous Installation`, and select the old folder. Restart Restream Control afterward.
+
+Keep the previous folder until the updated version has launched and the runner list, crops, and layouts have been confirmed.
+
 ## 3. Run Setup Wizard
 
 In Restream Control, open `Setup Wizard`.
@@ -140,7 +161,7 @@ If OBS actions fail, check that:
 If the app opens and closes immediately, look for:
 
 ```text
-state\crash.log
+%LOCALAPPDATA%\RestreamControl\state\crash.log
 ```
 
 ## Source Mode

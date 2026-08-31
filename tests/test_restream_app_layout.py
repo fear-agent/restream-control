@@ -1,9 +1,14 @@
+import os
 import sys
+import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 APP_DIR = Path(__file__).resolve().parents[1] / "app"
+os.environ.setdefault("RESTREAM_CONTROL_DATA_DIR", tempfile.mkdtemp(prefix="restream-control-tests-"))
 sys.path.insert(0, str(APP_DIR))
 
 import restream_app  # noqa: E402
@@ -41,6 +46,34 @@ class LayoutGeometryTests(unittest.TestCase):
 
         self.assertEqual(geometry["x"] + geometry["w"] + geometry["right"], restream_app.DESIGN_WIDTH)
         self.assertEqual(geometry["y"] + geometry["h"] + geometry["bottom"], restream_app.DESIGN_HEIGHT)
+
+    def test_existing_obs_text_source_is_repointed_to_shared_data(self) -> None:
+        calls: list[tuple[str, dict, bool]] = []
+
+        class FakeClient:
+            def get_input_settings(self, source_name: str) -> dict:
+                if source_name != "Runner 1 Name":
+                    raise RuntimeError("not found")
+                return {"inputSettings": {"read_from_file": True, "file": "C:/old/obs_text/runner1.txt"}}
+
+            def set_input_settings(self, source_name: str, settings: dict, overlay: bool) -> None:
+                calls.append((source_name, settings, overlay))
+
+        panel = types.SimpleNamespace(
+            obs_response_value=lambda obj, *names, default=None: next(
+                (obj[name] for name in names if isinstance(obj, dict) and name in obj),
+                default,
+            )
+        )
+        with (
+            mock.patch.object(restream_app.obs_crop_service, "connect", return_value=FakeClient()),
+            mock.patch.object(restream_app.app_state, "load_config", return_value={"obs_source_map": {}}),
+        ):
+            repaired = restream_app.RestreamApp.repair_obs_text_file_paths(panel)
+
+        self.assertEqual(repaired, 1)
+        self.assertEqual(calls[0][0], "Runner 1 Name")
+        self.assertEqual(calls[0][1]["file"], str((restream_app.OBS_TEXT_DIR / "runner1.txt").resolve()))
 
 
 if __name__ == "__main__":

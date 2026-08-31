@@ -59,13 +59,13 @@ if (!(Test-Path $DistDir)) {
 Write-Host "Copying release assets..."
 $copies = @(
     @{ Source = "obs-template"; Destination = "obs-template" },
-    @{ Source = "data"; Destination = "data" },
     @{ Source = "app\assets"; Destination = "assets" },
     @{ Source = "README.md"; Destination = "README.md" },
     @{ Source = "README_SETUP.md"; Destination = "README_SETUP.md" },
     @{ Source = "requirements.txt"; Destination = "requirements.txt" },
     @{ Source = "app\capture_runner_screenshots.ps1"; Destination = "capture_runner_screenshots.ps1" },
-    @{ Source = "app\create_desktop_shortcut.ps1"; Destination = "create_desktop_shortcut.ps1" }
+    @{ Source = "app\create_desktop_shortcut.ps1"; Destination = "create_desktop_shortcut.ps1" },
+    @{ Source = "app\apply_update.ps1"; Destination = "apply_update.ps1" }
 )
 
 foreach ($copy in $copies) {
@@ -77,9 +77,11 @@ foreach ($copy in $copies) {
     Copy-Item -LiteralPath $src -Destination $dst -Recurse -Force
 }
 
-foreach ($folder in @("obs_text", "crop_screenshots", "sync_screenshots", "state")) {
-    New-Item -ItemType Directory -Force -Path (Join-Path $DistDir $folder) | Out-Null
-}
+# The packaged runner list is a seed with a distinct name. This prevents an
+# update extracted over a portable installation from overwriting user runners.
+$PackagedDataDir = Join-Path $DistDir "data"
+New-Item -ItemType Directory -Force -Path $PackagedDataDir | Out-Null
+Copy-Item -LiteralPath (Join-Path $Root "data\runners.csv") -Destination (Join-Path $PackagedDataDir "example_runners.csv") -Force
 
 if (!$SkipZip) {
     New-Item -ItemType Directory -Force -Path $ReleaseDir | Out-Null
@@ -88,6 +90,9 @@ if (!$SkipZip) {
     }
     Write-Host "Creating $ZipPath..."
     Compress-Archive -Path (Join-Path $DistDir "*") -DestinationPath $ZipPath -Force
+    $ChecksumPath = "$ZipPath.sha256"
+    $Hash = (Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$Hash *$(Split-Path $ZipPath -Leaf)" | Set-Content -LiteralPath $ChecksumPath -Encoding ASCII
 }
 
 Write-Host ""
@@ -95,4 +100,5 @@ Write-Host "Build complete:"
 Write-Host "  $DistDir"
 if (!$SkipZip) {
     Write-Host "  $ZipPath"
+    Write-Host "  $ZipPath.sha256"
 }

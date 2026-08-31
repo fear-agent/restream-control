@@ -30,6 +30,7 @@ import cropping_tool
 import media_feed_service
 import obs_crop_service
 import stream_syncer
+import update_service
 
 APP_TITLE = "Restream Control"
 APP_VERSION = "0.3.0"
@@ -48,14 +49,14 @@ SYNC_TOOL = BASE_DIR / "stream_syncer.py"
 SCREENSHOT_SCRIPT = BASE_DIR / "capture_runner_screenshots.ps1"
 OBS_TEXT_DIR = app_state.config_path("obs_text_dir")
 SCREENSHOT_DIR = app_state.config_path("screenshot_dir")
-SYNC_SCREENSHOT_DIR = BASE_DIR / "sync_screenshots"
-LAST_SETUP = BASE_DIR / "race_setup_last.txt"
+SYNC_SCREENSHOT_DIR = app_state.SYNC_SCREENSHOT_DIR
+LAST_SETUP = app_state.LAST_SETUP_FILE
 RUNNERS_CSV = app_state.config_path("runner_csv")
 LOGO_FILE = BASE_DIR / "assets" / "logo-w.png"
 OBS_TEMPLATE_FILE = REPO_ROOT / "obs-template" / "Restream_Control_Template.json"
 DEFAULT_LAYOUT_IMAGES = {
-    "2P": REPO_ROOT / "obs-template" / "assets" / "overlay-bg-default.png",
-    "4P": REPO_ROOT / "obs-template" / "assets" / "overlay-bg-default-4p.png",
+    "2P": app_state.OBS_ASSET_DIR / "overlay-bg-default.png",
+    "4P": app_state.OBS_ASSET_DIR / "overlay-bg-default-4p.png",
 }
 LAYOUT_DESIGN_FILE = app_state.STATE_DIR / "layout_designer.json"
 
@@ -134,6 +135,17 @@ def release_version_key(value: str) -> tuple[int, ...]:
     return tuple(int(number) for number in numbers) or (0,)
 
 
+def resolve_managed_asset_path(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    path = Path(raw)
+    if path.exists():
+        return str(path)
+    candidate = app_state.OBS_ASSET_DIR / path.name
+    return str(candidate) if candidate.exists() else str(path)
+
+
 def bundled_or_exists(path: Path) -> bool:
     return app_state.IS_FROZEN or path.exists()
 
@@ -183,6 +195,17 @@ def run_detached(args: list[str]) -> None:
         subprocess.Popen(args, cwd=str(BASE_DIR))
     except Exception as exc:
         messagebox.showerror("Launch failed", str(exc))
+
+
+def update_health_arguments(arguments: list[str]) -> tuple[Path | None, str]:
+    try:
+        file_index = arguments.index("--update-health-file")
+        token_index = arguments.index("--update-health-token")
+        health_file = Path(arguments[file_index + 1]).expanduser().resolve()
+        token = arguments[token_index + 1].strip()
+        return health_file, token
+    except (ValueError, IndexError, OSError):
+        return None, ""
 
 
 def open_folder(path: Path) -> None:
@@ -528,8 +551,13 @@ class RestreamApp(tk.Tk):
         self.update_status_var = tk.StringVar(value=f"Installed: v{APP_VERSION}. Check GitHub for a newer release.")
         self.update_check_button: Optional[tk.Button] = None
         self.update_download_button: Optional[tk.Button] = None
+        self.update_restore_button: Optional[tk.Button] = None
         self.update_release_url = ""
         self.update_download_url = ""
+        self.update_checksum_url = ""
+        self.update_available_tag = ""
+        self.update_can_install = False
+        self._update_exit_requested = False
         self.edit_runner_var = tk.StringVar()
         self.edit_display_var = tk.StringVar()
         self.edit_twitch_var = tk.StringVar()
@@ -597,6 +625,10 @@ class RestreamApp(tk.Tk):
         self.load_runners_into_setup()
         self.show_page("Setup Wizard" if self.should_show_setup_wizard() else "Setup")
         self.after(150, self.refresh_status)
+        health_file, health_token = update_health_arguments(sys.argv[1:])
+        if health_file and health_token:
+            self.after(1200, lambda: update_service.write_health_marker(health_file, health_token, APP_VERSION))
+        self.after(2600, self.refresh_update_result)
 
     def log_status(self, message: str) -> None:
         self.status_var.set(message)
@@ -911,6 +943,9 @@ class RestreamApp(tk.Tk):
         self.update_dashboard(include_obs=False)
 
     def on_close(self) -> None:
+        if self._update_exit_requested:
+            self.destroy()
+            return
         running_slots = [
             slot
             for slot, state in media_feed_service.all_states().items()
@@ -1193,6 +1228,7 @@ class RestreamApp(tk.Tk):
             self.save_new_runners_to_list(selected)
             comms = self.get_comms()
             mod.update_obs_text_files(mode, selected, comms)
+            self.repair_obs_text_file_paths()
             mod.save_last_setup(mode, selected, comms)
             app_state.save_current_race(mode, selected, comms)
             if not self.ensure_direct_media_layout_ready(mode, available_slots):
@@ -2275,6 +2311,7 @@ class RestreamApp(tk.Tk):
         self.redraw_layout_designer()
 
     def set_layout_image_path(self, path: str) -> None:
+        path = resolve_managed_asset_path(path)
         self.layout_bg_path = path
         self.layout_bg_source = None
         self.layout_bg_photo = None
@@ -2390,6 +2427,7 @@ class RestreamApp(tk.Tk):
             if match:
                 normalized["image_index"] = int(match.group(1))
         if str(normalized.get("type", "")) == "Image":
+            normalized["image_path"] = resolve_managed_asset_path(str(normalized.get("image_path", "") or ""))
             layer = str(normalized.get("layer", "") or "").strip()
             if layer not in {"Behind feeds", "Above feeds", "Above overlay"}:
                 normalized["layer"] = "Above feeds"
@@ -3711,6 +3749,11 @@ class RestreamApp(tk.Tk):
         self.update_download_button = self.button(updates_row, "Open Latest Release", self.open_latest_release, compact=True)
         self.update_download_button.pack(side="left", padx=8)
         self.update_download_button.configure(state="disabled")
+        self.update_restore_button = self.button(updates_row, "Restore Previous Version", self.restore_previous_version, compact=True)
+        self.update_restore_button.pack(side="left", padx=8)
+        self.update_restore_button.configure(
+            state="normal" if app_state.IS_FROZEN and update_service.latest_backup(app_state.UPDATE_BACKUP_DIR) else "disabled"
+        )
         tk.Label(
             updates_panel,
             textvariable=self.update_status_var,
@@ -3728,13 +3771,14 @@ class RestreamApp(tk.Tk):
         self.button(folders, "Open Launcher Folder", lambda: open_folder(BASE_DIR), compact=True).pack(side="left", padx=(0, 8))
         self.button(folders, "Open OBS Text Folder", lambda: open_folder(OBS_TEXT_DIR), compact=True).pack(side="left", padx=8)
         self.button(folders, "Open Screenshot Folder", lambda: open_folder(SCREENSHOT_DIR), compact=True).pack(side="left", padx=8)
-        self.button(folders, "Open App Data Folder", lambda: open_folder(app_state.STATE_DIR), compact=True).pack(side="left", padx=8)
+        self.button(folders, "Open App Data Folder", lambda: open_folder(app_state.DATA_DIR), compact=True).pack(side="left", padx=8)
         self.button(folders, "Open Discord PTB", self.open_discord_ptb, compact=True).pack(side="left", padx=8)
 
         maintenance_panel = self.panel(parent, "Maintenance")
         maintenance_top = tk.Frame(maintenance_panel, bg=PANEL)
         maintenance_top.pack(fill="x", padx=16, pady=(4, 8))
         self.button(maintenance_top, "Backup Local Data", self.backup_local_data, primary=True, compact=True).pack(side="left", padx=(0, 8))
+        self.button(maintenance_top, "Import Previous Installation", self.import_previous_installation, compact=True).pack(side="left", padx=8)
         self.button(maintenance_top, "Restore Runner List", self.restore_runner_list, compact=True).pack(side="left", padx=8)
         self.button(maintenance_top, "Open Backup Folder", lambda: open_folder(self.local_backup_dir()), compact=True).pack(side="left", padx=8)
         maintenance_bottom = tk.Frame(maintenance_panel, bg=PANEL)
@@ -3865,46 +3909,38 @@ class RestreamApp(tk.Tk):
                 payload = json.loads(response.read().decode("utf-8"))
             if not isinstance(payload, dict):
                 raise RuntimeError("GitHub returned an unexpected response.")
-            tag = str(payload.get("tag_name", "")).strip()
-            release_url = str(payload.get("html_url", "")).strip()
-            if not tag or not release_url:
-                raise RuntimeError("GitHub did not return a release tag.")
-            assets = payload.get("assets", [])
-            download_url = ""
-            if isinstance(assets, list):
-                for asset in assets:
-                    if not isinstance(asset, dict):
-                        continue
-                    name = str(asset.get("name", ""))
-                    if name.lower().startswith("restreamcontrol-") and name.lower().endswith(".zip"):
-                        download_url = str(asset.get("browser_download_url", "")).strip()
-                        break
-            self.after(0, lambda: self.apply_update_check_result(tag, release_url, download_url))
+            tag, release_url, download_url, checksum_url = update_service.select_release_assets(payload)
+            self.after(0, lambda: self.apply_update_check_result(tag, release_url, download_url, checksum_url))
         except (URLError, TimeoutError, json.JSONDecodeError, RuntimeError) as exc:
             self.after(0, lambda: self.apply_update_check_error(str(exc)))
         except Exception as exc:
             self.after(0, lambda: self.apply_update_check_error(f"Could not check for updates: {exc}"))
 
-    def apply_update_check_result(self, tag: str, release_url: str, download_url: str) -> None:
+    def apply_update_check_result(self, tag: str, release_url: str, download_url: str, checksum_url: str = "") -> None:
         self.update_release_url = release_url
         self.update_download_url = download_url
+        self.update_checksum_url = checksum_url
+        self.update_available_tag = tag
         if self.update_check_button:
             self.update_check_button.configure(state="normal")
-        if self.update_download_button:
-            self.update_download_button.configure(
-                state="normal",
-                text=f"Download {tag}" if download_url else "Open Latest Release",
-            )
-
         installed = release_version_key(APP_VERSION)
         available = release_version_key(tag)
         length = max(len(installed), len(available))
         installed += (0,) * (length - len(installed))
         available += (0,) * (length - len(available))
-        if available > installed:
-            self.update_status_var.set(
-                f"Update available: {tag}. Download it, extract it into a new folder, then run the new Restream Control.exe. Your local data stays separate."
+        self.update_can_install = bool(app_state.IS_FROZEN and download_url and checksum_url and available > installed)
+        if self.update_download_button:
+            self.update_download_button.configure(
+                state="normal",
+                text=f"Install {tag}" if self.update_can_install else "Open Latest Release",
             )
+        if available > installed:
+            if app_state.IS_FROZEN and download_url and checksum_url:
+                self.update_status_var.set(f"Update available: {tag}. Install verifies the release, preserves your data, and keeps the current version for rollback.")
+            elif app_state.IS_FROZEN:
+                self.update_status_var.set(f"Update available: {tag}, but automatic install requires both the ZIP and SHA-256 release assets. Open the release to update manually.")
+            else:
+                self.update_status_var.set(f"Update available: {tag}. This source/BAT copy should be updated with GitHub Desktop.")
         elif available == installed:
             self.update_status_var.set(f"You are up to date: v{APP_VERSION}.")
         else:
@@ -3916,11 +3952,116 @@ class RestreamApp(tk.Tk):
         self.update_status_var.set(f"Update check failed: {message}")
 
     def open_latest_release(self) -> None:
+        if self.update_can_install:
+            self.install_available_update()
+            return
         url = self.update_download_url or self.update_release_url
         if not url:
             messagebox.showinfo("Check for updates", "Click Check for Updates first.")
             return
         webbrowser.open_new_tab(url)
+
+    def install_available_update(self) -> None:
+        if not app_state.IS_FROZEN:
+            messagebox.showinfo("Update Restream Control", "Automatic installation is available in the packaged EXE. Update this source copy with GitHub Desktop.")
+            return
+        if not self.update_download_url or not self.update_checksum_url or not self.update_available_tag:
+            messagebox.showinfo("Update Restream Control", "Click Check for Updates first. The release must include a ZIP and SHA-256 file.")
+            return
+        if not messagebox.askyesno(
+            "Install update",
+            f"Install {self.update_available_tag}?\n\nRestream Control will download and verify the release, stop Direct feeds, restart, and retain this version for rollback.",
+            parent=self,
+        ):
+            return
+        if self.update_download_button:
+            self.update_download_button.configure(state="disabled")
+        self.update_status_var.set(f"Downloading and verifying {self.update_available_tag}...")
+        threading.Thread(target=self._prepare_update_worker, daemon=True).start()
+
+    def _prepare_update_worker(self) -> None:
+        try:
+            transaction = update_service.new_transaction_dir(app_state.UPDATES_DIR, self.update_available_tag)
+            zip_path = transaction / "update.zip"
+            checksum_path = transaction / "update.zip.sha256"
+            update_service.download_file(self.update_download_url, zip_path)
+            update_service.download_file(self.update_checksum_url, checksum_path)
+            package_root = update_service.extract_verified_package(
+                zip_path,
+                checksum_path.read_text(encoding="utf-8-sig"),
+                transaction / "staged",
+            )
+            helper = transaction / "apply_update.ps1"
+            shutil.copy2(package_root / "apply_update.ps1", helper)
+            self.after(0, lambda: self._handoff_update("Install", package_root, helper, self.update_available_tag))
+        except Exception as exc:
+            self.after(0, lambda: self._update_prepare_failed(str(exc)))
+
+    def _update_prepare_failed(self, message: str) -> None:
+        if self.update_download_button:
+            self.update_download_button.configure(state="normal")
+        self.update_status_var.set(f"Update was not installed: {message}")
+        messagebox.showerror("Update failed", message, parent=self)
+
+    def _handoff_update(self, mode: str, source_dir: Path, helper: Path, target_version: str) -> None:
+        token = os.urandom(24).hex()
+        health_file = app_state.UPDATE_HEALTH_DIR / f"health-{token}.json"
+        result_file = app_state.UPDATES_DIR / "last_update_result.json"
+        try:
+            media_feed_service.stop_all()
+            update_service.launch_helper(
+                helper,
+                [
+                    "-Mode", mode,
+                    "-CurrentPid", str(os.getpid()),
+                    "-InstallDir", str(BASE_DIR),
+                    "-SourceDir", str(source_dir),
+                    "-BackupRoot", str(app_state.UPDATE_BACKUP_DIR),
+                    "-HealthFile", str(health_file),
+                    "-HealthToken", token,
+                    "-ResultFile", str(result_file),
+                    "-TargetVersion", target_version,
+                ],
+            )
+        except Exception as exc:
+            self._update_prepare_failed(str(exc))
+            return
+        self._update_exit_requested = True
+        self.update_status_var.set("Update verified. Closing Restream Control so the updater can replace application files...")
+        self.after(250, self.destroy)
+
+    def restore_previous_version(self) -> None:
+        if not app_state.IS_FROZEN:
+            messagebox.showinfo("Restore previous version", "Rollback is available in the packaged EXE.")
+            return
+        backup = update_service.latest_backup(app_state.UPDATE_BACKUP_DIR)
+        if backup is None:
+            messagebox.showinfo("Restore previous version", "No previous packaged version is available.")
+            return
+        if not messagebox.askyesno(
+            "Restore previous version",
+            f"Restore the application files from:\n{backup.name}\n\nYour runners, settings, crops, layouts, and screenshots will remain unchanged.",
+            parent=self,
+        ):
+            return
+        transaction = update_service.new_transaction_dir(app_state.UPDATES_DIR, "restore")
+        helper = transaction / "apply_update.ps1"
+        shutil.copy2(BASE_DIR / "apply_update.ps1", helper)
+        self._handoff_update("Restore", backup, helper, backup.name)
+
+    def refresh_update_result(self) -> None:
+        backup = update_service.latest_backup(app_state.UPDATE_BACKUP_DIR)
+        if self.update_restore_button:
+            self.update_restore_button.configure(state="normal" if app_state.IS_FROZEN and backup else "disabled")
+        result = app_state.load_json(app_state.UPDATES_DIR / "last_update_result.json", {})
+        if not isinstance(result, dict):
+            return
+        status = str(result.get("status", ""))
+        message = str(result.get("message", "")).strip()
+        if status == "success" and message:
+            self.update_status_var.set(message)
+        elif status in {"rolled_back", "failed"} and message:
+            self.update_status_var.set(message)
 
     def toggle_source_mapping_editor(self) -> None:
         if self.source_mapping_body is None or self.source_mapping_toggle is None:
@@ -4262,8 +4403,10 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
     def backup_local_data(self) -> None:
         targets = [
             (RUNNERS_CSV, "runners"),
+            (app_state.CONFIG_FILE, "app_config"),
             (app_state.CROP_PRESETS_FILE, "crop_presets"),
             (LAYOUT_DESIGN_FILE, "layout_designer"),
+            (obs_crop_service.MEDIA_ITEM_MAP_FILE, "media_scene_items"),
         ]
         backed_up = []
         for path, label in targets:
@@ -4275,6 +4418,76 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             return
         self.log_status(f"Backed up local data: {', '.join(backed_up)}")
         messagebox.showinfo("Local data backups", "Backed up:\n" + "\n".join(backed_up))
+
+    def import_previous_installation(self) -> None:
+        selected = filedialog.askdirectory(
+            title="Choose the previous Restream Control folder",
+            mustexist=True,
+        )
+        if not selected:
+            return
+        selected_path = Path(selected)
+        source_app = selected_path / "app" if (selected_path / "app").is_dir() else selected_path
+        source_root = selected_path
+        if source_app == selected_path and selected_path.name.lower() == "app" and (selected_path.parent / "data").is_dir():
+            source_root = selected_path.parent
+        evidence = [
+            source_app / "app_config.json",
+            source_app / "runners.csv",
+            source_app / "state" / "crop_presets.json",
+            source_root / "data" / "runners.csv",
+        ]
+        if not any(path.exists() for path in evidence):
+            messagebox.showerror(
+                "Previous installation not found",
+                "That folder does not contain Restream Control user data. Choose the old extracted folder or the source repository folder.",
+            )
+            return
+        if not messagebox.askyesno(
+            "Import previous installation",
+            "Replace the current settings, runner list, crops, and saved layouts with data from this previous installation?\n\n"
+            "The previous folder will not be changed.",
+        ):
+            return
+        try:
+            snapshot = self.local_backup_dir() / f"before-import-{time.strftime('%Y%m%d-%H%M%S')}"
+            for current in [
+                app_state.CONFIG_FILE,
+                app_state.RUNNERS_FILE,
+                app_state.CURRENT_RACE_FILE,
+                app_state.CROP_PRESETS_FILE,
+                LAYOUT_DESIGN_FILE,
+                obs_crop_service.MEDIA_ITEM_MAP_FILE,
+            ]:
+                if current.is_file():
+                    snapshot.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(current, snapshot / current.name)
+            migrated = app_state.migrate_legacy_data(
+                source_app,
+                source_root,
+                app_state.DATA_DIR,
+                replace_existing=True,
+            )
+            if not migrated:
+                messagebox.showinfo("Import previous installation", "No user data was found to import.")
+                return
+            marker = app_state.load_json(app_state.MIGRATION_FILE, {})
+            if not isinstance(marker, dict):
+                marker = {"format": 1}
+            marker["last_manual_import_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+            marker["last_manual_import_from"] = str(selected_path)
+            app_state.save_json(app_state.MIGRATION_FILE, marker)
+            self.reload_config_fields()
+            self.load_runners_into_setup()
+            self.load_layout_designer(show_status=False)
+            self.reload_names()
+            self.log_status(f"Imported previous installation from {selected_path}")
+            messagebox.showinfo(
+                "Import complete",
+                f"Imported {len(migrated)} file(s). Restart Restream Control before starting a race.",
+            )
+        except Exception as exc:
+            messagebox.showerror("Import failed", str(exc))
 
     def restore_runner_list(self) -> None:
         path = filedialog.askopenfilename(
@@ -4367,6 +4580,7 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             self.save_new_runners_to_list(selected)
             comms = self.get_comms()
             mod.update_obs_text_files(mode, selected, comms)
+            self.repair_obs_text_file_paths()
             app_state.save_current_race(mode, selected, comms)
             self.reload_names()
             self.log_status("OBS text names updated.")
@@ -4397,6 +4611,7 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             self.save_new_runners_to_list(selected)
             comms = self.get_comms()
             mod.update_obs_text_files(mode, selected, comms)
+            self.repair_obs_text_file_paths()
             mod.save_last_setup(mode, selected, comms)
             for slot in available_slots:
                 mod.close_runner_window(slot)
@@ -4458,6 +4673,7 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             if not messagebox.askyesno(reason, f"Close and relaunch {len(available_slots)} saved runner stream(s)?"):
                 return False
             mod.update_obs_text_files(mode, selected, comms)
+            self.repair_obs_text_file_paths()
             mod.save_last_setup(mode, selected, comms)
             for slot in available_slots:
                 mod.close_runner_window(slot)
@@ -4562,6 +4778,8 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             str(SCREENSHOT_SCRIPT),
             "-SlotList",
             slots,
+            "-OutputDir",
+            str(SCREENSHOT_DIR),
         ]
         try:
             result = subprocess.run(
@@ -4666,6 +4884,72 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             return (OBS_TEXT_DIR / filename).read_text(encoding="utf-8").strip()
         except Exception:
             return ""
+
+    def repair_obs_text_file_paths(self) -> int:
+        """Keep existing template text inputs pointed at stable user data."""
+        try:
+            client = obs_crop_service.connect()
+        except Exception:
+            return 0
+        source_map = app_state.load_config().get("obs_source_map", {})
+        if not isinstance(source_map, dict):
+            source_map = {}
+        repaired = 0
+        targets = {
+            "Runner 1 Name": "runner1.txt",
+            "Runner 2 Name": "runner2.txt",
+            "Runner 3 Name": "runner3.txt",
+            "Runner 4 Name": "runner4.txt",
+            "Comms Name": "comm_names.txt",
+        }
+        for logical_name, filename in targets.items():
+            source_name = str(source_map.get(logical_name, logical_name) or logical_name)
+            try:
+                response = client.get_input_settings(source_name)
+                settings = self.obs_response_value(response, "inputSettings", "input_settings", default={})
+                if not isinstance(settings, dict):
+                    continue
+                if not settings.get("read_from_file") and not settings.get("file"):
+                    continue
+                expected = str((OBS_TEXT_DIR / filename).resolve())
+                if str(settings.get("file", "")) == expected and settings.get("read_from_file") is True:
+                    continue
+                client.set_input_settings(
+                    source_name,
+                    {"read_from_file": True, "file": expected},
+                    True,
+                )
+                repaired += 1
+            except Exception:
+                continue
+        try:
+            template = self.load_obs_template()
+        except Exception:
+            template = {}
+        for logical_name in [
+            "Background 2P",
+            "Background 2P Outlines",
+            "Background 4P",
+            "Background 4P Outlines",
+            "Background Image [placeholder]",
+        ]:
+            source_name = str(source_map.get(logical_name, logical_name) or logical_name)
+            try:
+                source_template = self.template_source(template, logical_name)
+                expected_settings = self.builder_input_settings(source_template)
+                expected = str(expected_settings.get("file", ""))
+                response = client.get_input_settings(source_name)
+                settings = self.obs_response_value(response, "inputSettings", "input_settings", default={})
+                current = str(settings.get("file", "")) if isinstance(settings, dict) else ""
+                if not expected or not current or Path(current).name.lower() != Path(expected).name.lower():
+                    continue
+                if current == expected:
+                    continue
+                client.set_input_settings(source_name, {"file": expected}, True)
+                repaired += 1
+            except Exception:
+                continue
+        return repaired
 
     def save_one_name(self, filename: str) -> None:
         OBS_TEXT_DIR.mkdir(parents=True, exist_ok=True)
@@ -5207,7 +5491,7 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
         if isinstance(file_value, str):
             normalized = file_value.replace("\\", "/")
             if normalized.startswith("obs-template/"):
-                settings["file"] = str((REPO_ROOT / normalized).resolve())
+                settings["file"] = str((app_state.OBS_ASSET_DIR / Path(normalized).name).resolve())
             elif normalized.startswith("examples/obs_text/"):
                 settings["file"] = str((OBS_TEXT_DIR / Path(normalized).name).resolve())
         source_kind = str(template_source.get("id", "") or "")
@@ -6542,6 +6826,7 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             f"Platform: {sys.platform}",
             f"App folder: {BASE_DIR}",
             f"Repo/root folder: {REPO_ROOT}",
+            f"User data folder: {app_state.DATA_DIR}",
             f"Runner CSV: {RUNNERS_CSV} ({'found' if RUNNERS_CSV.exists() else 'missing'})",
             f"OBS text folder: {OBS_TEXT_DIR}",
             f"Screenshot folder: {SCREENSHOT_DIR}",

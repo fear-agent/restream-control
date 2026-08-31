@@ -6,6 +6,9 @@ It supports two playback methods: Streamlink/VLC windows, or local Streamlink HT
 
 ## What's New in v0.3.0
 
+- Settings, runners, crops, layouts, screenshots, logs, and generated OBS text now live in `%LOCALAPPDATA%\RestreamControl`, separate from application files.
+- Existing portable data is migrated automatically when the new version is run from the previous folder. `Settings` also includes `Import Previous Installation` when the new version was extracted elsewhere.
+- Existing OBS file-based runner and commentator text sources are automatically repointed to the shared app data folder the next time names are updated.
 - Direct OBS now uses persistent local Streamlink HTTP feeds. The retired FFmpeg/UDP relay is no longer required.
 - Direct feeds can be started, restarted, and replaced while OBS is live, with staggered multi-runner startup and automatic migration of older Direct source URLs.
 - Direct feed rows distinguish `Ready`, `Playing`, and `Offline`, and wait for an offline runner to return without requiring a relaunch.
@@ -25,6 +28,31 @@ For normal use, download the latest release ZIP from GitHub Releases.
 Keep the extracted folder together. Do not move the exe away from the folders beside it.
 
 To check for future releases from inside the app, open `Settings` and click `Check for Updates`.
+
+## Updating
+
+User data is stored separately from the downloaded application at:
+
+```text
+%LOCALAPPDATA%\RestreamControl
+```
+
+Packaged releases can update themselves from `Settings`:
+
+1. Click `Check for Updates`.
+2. Click `Install` when a newer release is available.
+3. Restream Control downloads the release ZIP and SHA-256 file, verifies the package, stops Direct feeds, replaces only application files, and restarts.
+
+The prior packaged version is retained under `%LOCALAPPDATA%\RestreamControl\updates\backups`. Use `Restore Previous Version` in Settings to roll back application files. If an updated app cannot confirm a healthy startup, the updater restores and launches the prior version automatically.
+
+Automatic installation requires a GitHub release containing both `RestreamControl-vX.Y.Z.zip` and `RestreamControl-vX.Y.Z.zip.sha256`. Source/BAT users should update with GitHub Desktop.
+
+For the one-time move from v0.2.x or an earlier portable v0.3.0 build:
+
+- If the updated files are extracted over the previous application folder, the first launch migrates the old data automatically without deleting it.
+- If the update is extracted into a different folder, open `Settings`, click `Import Previous Installation`, and choose the old extracted folder. Restart Restream Control after the import.
+
+The release package contains `data\example_runners.csv` only as a first-run seed. It does not contain `data\runners.csv`, so an update cannot replace a user runner list.
 
 ## Required Programs
 
@@ -83,5 +111,5 @@ If you need help, click `Copy Diagnostics` and paste the copied report when aski
 If the exe opens and closes, check:
 
 ```text
-state\crash.log
+%LOCALAPPDATA%\RestreamControl\state\crash.log
 ```

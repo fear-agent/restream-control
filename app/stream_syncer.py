@@ -39,8 +39,8 @@ except Exception:
     ImageTk = None
 
 ROOT = app_state.APP_DIR
-LAST_SETUP = ROOT / "race_setup_last.txt"
-SYNC_SCREENSHOT_DIR = ROOT / "sync_screenshots"
+LAST_SETUP = app_state.LAST_SETUP_FILE
+SYNC_SCREENSHOT_DIR = app_state.SYNC_SCREENSHOT_DIR
 QUALITY = "720p60,720p,480p,360p,1080p60,1080p,best"
 VLC_PLAYER_ARGS = "--no-video-title-show --no-osd --no-qt-privacy-ask --play-and-pause {playerinput}"
 

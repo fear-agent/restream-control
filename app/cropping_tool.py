@@ -37,7 +37,7 @@ APP_TITLE = "Cropping Tool"
 DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 4455
 ROOT_DIR = str(app_state.APP_DIR)
-CONFIG_FILE = os.path.join(ROOT_DIR, "cropping_tool_config.json")
+CONFIG_FILE = str(app_state.CROPPING_CONFIG_FILE)
 SCREENSHOT_DIR = str(app_state.config_path("screenshot_dir"))
 
 BG = "#101113"
@@ -480,6 +480,7 @@ class CropPanel(tk.Frame):
                     "-ExecutionPolicy", "Bypass",
                     "-File", ps1,
                     "-SlotList", str(slot),
+                    "-OutputDir", SCREENSHOT_DIR,
                 ],
                 cwd=ROOT_DIR,
                 capture_output=True,

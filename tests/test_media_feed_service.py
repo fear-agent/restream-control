@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import io
+import os
 import socket
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -10,6 +12,7 @@ from unittest import mock
 
 
 APP_DIR = Path(__file__).resolve().parents[1] / "app"
+os.environ.setdefault("RESTREAM_CONTROL_DATA_DIR", tempfile.mkdtemp(prefix="restream-control-tests-"))
 sys.path.insert(0, str(APP_DIR))
 
 import media_feed_service  # noqa: E402

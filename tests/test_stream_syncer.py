@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -9,6 +11,7 @@ from PIL import Image
 
 
 APP_DIR = Path(__file__).resolve().parents[1] / "app"
+os.environ.setdefault("RESTREAM_CONTROL_DATA_DIR", tempfile.mkdtemp(prefix="restream-control-tests-"))
 sys.path.insert(0, str(APP_DIR))
 
 import stream_syncer  # noqa: E402
