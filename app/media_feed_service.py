@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import os
 import shutil
 import socket
@@ -9,6 +11,7 @@ import subprocess
 import sys
 import time
 import math
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -24,6 +27,7 @@ LOW_LATENCY_MODE = "Low latency"
 SYNC_FILTER_NAME = "Restream Control Sync Delay"
 MAX_DIRECT_SYNC_DELAY_SECONDS = 20.0
 LOG_TAIL_BYTES = 64 * 1024
+MIN_STREAMLINK_VERSION = (8, 0, 0)
 
 
 def normalize_layout(layout: str | int | None = None) -> str:
@@ -112,7 +116,12 @@ def load_state(slot: int) -> dict[str, Any]:
 
 
 def write_state(slot: int, **updates: Any) -> None:
-    existing = load_state(slot)
+    app_state.update_json(state_path(slot), lambda existing: updated_state(slot, existing, updates))
+
+
+def updated_state(slot: int, existing: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(existing, dict):
+        raise app_state.StateFileError(f"Invalid feed state at {state_path(slot)}; file preserved.")
     existing.update(updates)
     # Remove state left by retired Direct-feed experiments. Current workers do
     # not read these values, and retaining them makes a later race look as if
@@ -143,32 +152,67 @@ def write_state(slot: int, **updates: Any) -> None:
     existing["ports"] = {part.lower(): existing["port"] for part in MEDIA_PARTS}
     existing["source_urls"] = {part.lower(): feed_url for part in MEDIA_PARTS}
     existing["updated_at"] = datetime.now().isoformat(timespec="seconds")
-    app_state.save_json(state_path(slot), existing)
+    return existing
 
 
 def command_available(name: str) -> bool:
     return shutil.which(name) is not None
 
 
+def streamlink_version() -> str:
+    if not command_available("streamlink"):
+        return ""
+    try:
+        result = subprocess.run(
+            ["streamlink", "--version"], capture_output=True, text=True, timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception:
+        return ""
+    match = re.search(r"(?i)streamlink\s+([0-9]+(?:\.[0-9]+)+)",
+                      "\n".join([result.stdout or "", result.stderr or ""]))
+    return match.group(1) if match else ""
+
+
+def version_key(value: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in re.findall(r"\d+", value))
+
+
+def streamlink_supported() -> bool:
+    version = streamlink_version()
+    return bool(version and version_key(version) >= MIN_STREAMLINK_VERSION)
+
+
 def prereq_errors() -> list[str]:
     errors = []
     if not command_available("streamlink"):
         errors.append("Streamlink was not found. Install Streamlink and reopen Restream Control.")
+    elif not streamlink_supported():
+        version = streamlink_version() or "unknown"
+        errors.append(
+            f"Streamlink {version} is too old for Twitch. Update Streamlink to 8.0.0 or newer, "
+            "then restart Restream Control."
+        )
     return errors
 
 
-def is_worker_running(state: dict[str, Any]) -> bool:
+def running_process_ids() -> set[int]:
+    """One Windows process snapshot can serve every runner in a refresh."""
+    result = subprocess.run(
+        ["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True,
+        timeout=3, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        check=True,
+    )
+    return {int(row[1]) for row in csv.reader(io.StringIO(result.stdout))
+            if len(row) > 1 and row[1].isdigit()}
+
+
+def is_worker_running(state: dict[str, Any], process_ids: set[int] | None = None) -> bool:
     pid = state.get("worker_pid")
     if not isinstance(pid, int) or pid <= 0:
         return False
     if os.name == "nt":
-        result = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
-            capture_output=True,
-            text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        return str(pid) in result.stdout
+        return pid in (running_process_ids() if process_ids is None else process_ids)
     try:
         os.kill(pid, 0)
         return True
@@ -339,18 +383,21 @@ def stop_obs_receiver(slot: int, layout: str | int | None) -> None:
         pass
 
 
-def set_obs_video_detected(slot: int, detected: bool) -> None:
+def set_obs_video_detected(slot: int, detected: bool, expected_worker_pid: int | None = None) -> None:
     """Persist an explicit OBS signal check so automatic UI refreshes keep it."""
-    state = load_state(slot)
-    if state.get("status") != "running":
-        return
-    latency = normalize_latency_mode(str(state.get("latency_mode") or STABLE_LATENCY_MODE))
-    message = (
-        f"OBS video detected. Streamlink HTTP feed is running in {latency} mode."
-        if detected
-        else f"Streamlink HTTP feed ready in {latency} mode. Waiting for OBS video..."
-    )
-    write_state(slot, obs_video_detected=bool(detected), message=message)
+    def update(state):
+        if state.get("status") != "running" or (
+            expected_worker_pid is not None and state.get("worker_pid") != expected_worker_pid
+        ):
+            return state
+        latency = normalize_latency_mode(str(state.get("latency_mode") or STABLE_LATENCY_MODE))
+        message = (
+            f"OBS video detected. Streamlink HTTP feed is running in {latency} mode."
+            if detected
+            else f"Streamlink HTTP feed ready in {latency} mode. Waiting for OBS video..."
+        )
+        return updated_state(slot, state, {"obs_video_detected": bool(detected), "message": message})
+    app_state.update_json(state_path(slot), update)
 
 
 def start_slot(
@@ -416,15 +463,19 @@ def start_slot(
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = 0
-    process = subprocess.Popen(
-        command,
-        cwd=str(app_state.APP_DIR),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=flags,
-        startupinfo=startupinfo,
-    )
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=str(app_state.APP_DIR),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+            startupinfo=startupinfo,
+        )
+    except Exception as exc:
+        write_state(slot, status="failed", worker_pid=0, message=f"Could not start feed worker: {exc}")
+        raise
     write_state(slot, worker_pid=process.pid, message="Starting Streamlink HTTP feed...")
 
 
@@ -455,13 +506,22 @@ def stop_all() -> None:
 
 
 def all_states() -> dict[int, dict[str, Any]]:
-    states: dict[int, dict[str, Any]] = {}
-    for slot in range(1, 5):
-        state = load_state(slot)
-        if state and state.get("status") in {"starting", "retrying", "running"} and not is_worker_running(state):
-            write_state(slot, status="stopped", message="Worker is no longer running.", worker_pid=0)
-            state = load_state(slot)
-        states[slot] = state
+    states = {slot: load_state(slot) for slot in range(1, 5)}
+    for state in states.values():
+        if state.get("status") in {"starting", "retrying", "running"} and not state.get("worker_pid"):
+            try:
+                age = (datetime.now() - datetime.fromisoformat(state["updated_at"])).total_seconds()
+            except (KeyError, TypeError, ValueError):
+                age = float("inf")
+            if state.get("status") != "starting" or age > 30:
+                state.update(status="stopped", message="Feed worker did not start.", worker_pid=0)
+    active = [state for state in states.values()
+              if state.get("status") in {"starting", "retrying", "running"} and state.get("worker_pid")]
+    process_ids = running_process_ids() if os.name == "nt" and active else None
+    for state in active:
+        if not is_worker_running(state, process_ids):
+            # Observation must not overwrite a newer worker's saved state.
+            state.update(status="stopped", message="Worker is no longer running.", worker_pid=0)
     return states
 
 

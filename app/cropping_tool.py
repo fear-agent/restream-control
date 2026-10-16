@@ -1,10 +1,10 @@
 import os
-import json
 import re
 import subprocess
 import time
 import base64
 from io import BytesIO
+from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
@@ -80,33 +80,27 @@ EMPTY_CROP_TEXT = "Left: -    Right: -\nTop: -     Bottom: -"
 def load_config():
     app_config = app_state.load_config()
     obs_config = app_config.get("obs_websocket", {})
-    if not os.path.exists(CONFIG_FILE):
-        return {
-            "host": obs_config.get("host", DEFAULT_HOST),
-            "port": obs_config.get("port", DEFAULT_PORT),
-            "password": obs_config.get("password", ""),
-        }
+    defaults = {
+        "host": obs_config.get("host", DEFAULT_HOST),
+        "port": obs_config.get("port", DEFAULT_PORT),
+        "password": obs_config.get("password", ""),
+    }
+    data = app_state.load_json(Path(CONFIG_FILE), defaults)
     try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
         return {
             "host": data.get("host", DEFAULT_HOST),
             "port": int(data.get("port", DEFAULT_PORT)),
             "password": data.get("password", ""),
         }
-    except Exception:
-        return {"host": DEFAULT_HOST, "port": DEFAULT_PORT, "password": ""}
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise app_state.StateFileError(f"Invalid crop settings at {CONFIG_FILE}. The file has been preserved.") from exc
 
 
 def save_config(host, port, password):
-    config = app_state.load_config()
-    config["obs_websocket"] = {"host": host, "port": int(port), "password": password}
-    app_state.save_config(config)
-    try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump({"host": host, "port": int(port), "password": password}, f, indent=2)
-    except Exception:
-        pass
+    settings = {"host": host, "port": int(port), "password": password}
+    app_state.load_json(Path(CONFIG_FILE), {})
+    app_state.save_config({"obs_websocket": settings})
+    app_state.save_json(Path(CONFIG_FILE), settings)
 
 
 class CropPanel(tk.Frame):

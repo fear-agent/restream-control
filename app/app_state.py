@@ -4,6 +4,10 @@ import json
 import os
 import shutil
 import sys
+import tempfile
+import threading
+import time
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -64,20 +68,105 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 _INITIALIZED = False
+_JSON_LOCKS: dict[str, threading.RLock] = {}
+_JSON_LOCKS_GUARD = threading.Lock()
+
+
+class StateFileError(RuntimeError):
+    """A saved file could not be read; leave it intact for recovery."""
+
+
+def _retry_file_access(operation):
+    # Windows can briefly deny access while another process replaces a file,
+    # or while a reader still holds the old file open. Never fall back to empty
+    # state for this transient sharing conflict.
+    deadline = time.monotonic() + 1
+    while True:
+        try:
+            return operation()
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
 
 
 def load_json(path: Path, default: Any) -> Any:
     try:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
+        return json.loads(_retry_file_access(lambda: path.read_text(encoding="utf-8-sig")))
     except FileNotFoundError:
         return default
-    except Exception:
-        return default
+    except (OSError, ValueError) as exc:
+        raise StateFileError(f"Could not read saved data at {path}. The file has been preserved: {exc}") from exc
+
+
+@contextmanager
+def json_transaction(path: Path):
+    """Serialize read/modify/write operations across threads and processes."""
+    path = Path(path).resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _JSON_LOCKS_GUARD:
+        lock = _JSON_LOCKS.setdefault(str(path).casefold(), threading.RLock())
+    with lock, path.with_name(path.name + ".lock").open("a+b") as handle:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise StateFileError(f"Saved data is busy: {path}. Please try again.")
+                time.sleep(0.02)
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _save_json_unlocked(path: Path, data: Any) -> None:
+    # Refuse to silently replace damaged saved data.
+    load_json(path, None)
+    payload = json.dumps(data, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=path.name + ".", suffix=".tmp", delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        _retry_file_access(lambda: os.replace(temporary, path))
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def save_json(path: Path, data: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path = Path(path)
+    with json_transaction(path):
+        _save_json_unlocked(path, data)
+
+
+def update_json(path: Path, update, default=None) -> Any:
+    """Apply an update while holding the file lock, including its initial read."""
+    path = Path(path)
+    with json_transaction(path):
+        result = update(load_json(path, {} if default is None else default))
+        _save_json_unlocked(path, result)
+        return result
 
 
 def _copy_file(
@@ -268,9 +357,8 @@ def load_config() -> dict[str, Any]:
 
 
 def save_config(config: dict[str, Any]) -> None:
-    current = load_config()
-    current.update(config)
-    save_json(CONFIG_FILE, current)
+    initialize_data_storage()
+    update_json(CONFIG_FILE, lambda current: {**current, **config})
 
 
 def config_path(name: str) -> Path:

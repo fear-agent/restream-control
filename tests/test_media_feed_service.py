@@ -19,6 +19,27 @@ import media_feed_service  # noqa: E402
 
 
 class MediaFeedServiceTests(unittest.TestCase):
+    def test_streamlink_version_support_boundary(self) -> None:
+        for version, supported in (("7.6.0", False), ("8.0.0", True), ("8.5.0", True)):
+            with (
+                self.subTest(version=version),
+                mock.patch.object(media_feed_service, "command_available", return_value=True),
+                mock.patch.object(media_feed_service.subprocess, "run", return_value=types.SimpleNamespace(
+                    stdout=f"streamlink {version}\n", stderr="")),
+            ):
+                self.assertEqual(media_feed_service.streamlink_version(), version)
+                self.assertEqual(media_feed_service.streamlink_supported(), supported)
+
+    def test_outdated_streamlink_gets_actionable_prerequisite_error(self) -> None:
+        with (
+            mock.patch.object(media_feed_service, "command_available", return_value=True),
+            mock.patch.object(media_feed_service, "streamlink_version", return_value="7.6.0"),
+        ):
+            self.assertEqual(media_feed_service.prereq_errors(), [
+                "Streamlink 7.6.0 is too old for Twitch. Update Streamlink to 8.0.0 or newer, "
+                "then restart Restream Control."
+            ])
+
     def test_stream_activity_uses_only_latest_runner_session(self) -> None:
         log = io.BytesIO(
             b"[cli][info] Stream not available, will re-fetch streams in 10 sec\n"
@@ -189,17 +210,11 @@ class MediaFeedServiceTests(unittest.TestCase):
 
     def test_obs_video_detection_updates_running_status(self) -> None:
         state = {"status": "running", "latency_mode": "Stable"}
-        with (
-            mock.patch.object(media_feed_service, "load_state", return_value=state),
-            mock.patch.object(media_feed_service, "write_state") as write_state,
-        ):
+        with mock.patch.object(media_feed_service.app_state, "update_json",
+                               side_effect=lambda path, update: update(state)):
             media_feed_service.set_obs_video_detected(2, True)
-
-        write_state.assert_called_once_with(
-            2,
-            obs_video_detected=True,
-            message="OBS video detected. Streamlink HTTP feed is running in Stable mode.",
-        )
+        self.assertTrue(state["obs_video_detected"])
+        self.assertEqual(state["message"], "OBS video detected. Streamlink HTTP feed is running in Stable mode.")
 
     def test_write_state_removes_retired_relay_fields(self) -> None:
         state = {
@@ -210,14 +225,53 @@ class MediaFeedServiceTests(unittest.TestCase):
             "relay_delay_seconds": 1.5,
         }
         with (
-            mock.patch.object(media_feed_service, "load_state", return_value=state.copy()),
             mock.patch.object(media_feed_service, "port_base", return_value=5101),
-            mock.patch.object(media_feed_service.app_state, "save_json") as save_json,
+            mock.patch.object(media_feed_service.app_state, "update_json",
+                              side_effect=lambda path, update: update(state)),
         ):
             media_feed_service.write_state(1, status="running")
+        self.assertFalse(any(key.startswith("relay_") for key in state))
 
-        saved = save_json.call_args.args[1]
-        self.assertFalse(any(key.startswith("relay_") for key in saved))
+    def test_snapshot_checks_four_workers_with_one_process_query_without_writing(self):
+        with (
+            mock.patch.object(media_feed_service, "load_state", side_effect=lambda slot: {
+                "worker_pid": slot, "status": "running"}),
+            mock.patch.object(media_feed_service, "running_process_ids", return_value={1, 2, 3}) as query,
+            mock.patch.object(media_feed_service, "write_state") as write,
+        ):
+            states = media_feed_service.all_states()
+        query.assert_called_once()
+        write.assert_not_called()
+        self.assertEqual(states[1]["status"], "running")
+        self.assertEqual(states[4]["status"], "stopped")
+
+    def test_stale_obs_check_cannot_update_replacement_worker(self):
+        state = {"status": "running", "worker_pid": 200, "obs_video_detected": False}
+        with mock.patch.object(media_feed_service.app_state, "update_json",
+                               side_effect=lambda path, update: update(state)):
+            media_feed_service.set_obs_video_detected(1, True, expected_worker_pid=100)
+        self.assertFalse(state["obs_video_detected"])
+
+    def test_startup_grace_period_does_not_hide_a_failed_launch_forever(self):
+        fresh = {"status": "starting", "worker_pid": 0,
+                 "updated_at": media_feed_service.datetime.now().isoformat()}
+        old = {"status": "starting", "worker_pid": 0, "updated_at": "2000-01-01T00:00:00"}
+        with mock.patch.object(media_feed_service, "load_state", side_effect=[fresh, old, {}, {}]):
+            states = media_feed_service.all_states()
+        self.assertEqual(states[1]["status"], "starting")
+        self.assertEqual(states[2]["status"], "stopped")
+
+    def test_process_launch_failure_is_recorded(self):
+        with (
+            mock.patch.object(media_feed_service, "prereq_errors", return_value=[]),
+            mock.patch.object(media_feed_service, "stop_slot"),
+            mock.patch.object(media_feed_service, "clear_obs_sync_delay"),
+            mock.patch.object(media_feed_service, "write_state") as write,
+            mock.patch.object(media_feed_service.subprocess, "Popen", side_effect=OSError("cannot launch")),
+        ):
+            with self.assertRaises(OSError):
+                media_feed_service.start_slot(1, "Runner", "runner", "best")
+        self.assertEqual(write.call_args.kwargs["status"], "failed")
 
 
 if __name__ == "__main__":

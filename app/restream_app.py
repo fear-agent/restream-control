@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import traceback
+from concurrent.futures import Future, ThreadPoolExecutor
 import tkinter as tk
 import webbrowser
 from io import BytesIO
@@ -33,7 +34,7 @@ import stream_syncer
 import update_service
 
 APP_TITLE = "Restream Control"
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 GITHUB_REPOSITORY = "fear-agent/restream-control"
 GITHUB_LATEST_RELEASE_URL = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest"
 BASE_DIR = app_state.APP_DIR
@@ -92,7 +93,7 @@ LAYOUT_REGION_COLORS = {
     "Text": "#e5e7eb",
     "Browser": "#38bdf8",
 }
-LAYOUT_REGION_TYPES = ["Game", "Tracker", "Timer", "Facecam", "Runner Name", "Comms", "Text", "Image"]
+LAYOUT_REGION_TYPES = ["Game", "Tracker", "Timer", "Facecam", "Runner Name", "Comms"]
 MAX_EXTRA_TEXT_REGIONS = 3
 PLAYBACK_STANDARD = "Standard: VLC Windows"
 PLAYBACK_DIRECT = "Direct to OBS: Media Feeds"
@@ -630,6 +631,12 @@ class RestreamApp(tk.Tk):
             self.after(1200, lambda: update_service.write_health_marker(health_file, health_token, APP_VERSION))
         self.after(2600, self.refresh_update_result)
 
+    def report_callback_exception(self, exc_type, exc, tb) -> None:
+        if isinstance(exc, app_state.StateFileError):
+            messagebox.showerror("Saved data needs attention", str(exc), parent=self)
+        else:
+            super().report_callback_exception(exc_type, exc, tb)
+
     def log_status(self, message: str) -> None:
         self.status_var.set(message)
         self.log_var.set(message)
@@ -1088,8 +1095,7 @@ class RestreamApp(tk.Tk):
         self.media_feed_status_var.set(f"Direct connection set to {selected}. Restart a feed to use it.")
 
     def refresh_media_feeds(self, check_obs_video: bool = False) -> None:
-        frame = self.media_feed_rows_frame
-        if frame is None:
+        if self.media_feed_rows_frame is None:
             return
         if self.media_feed_refresh_after is not None:
             try:
@@ -1097,11 +1103,45 @@ class RestreamApp(tk.Tk):
             except tk.TclError:
                 pass
             self.media_feed_refresh_after = None
-        states = media_feed_service.all_states()
+        if getattr(self, "_media_refresh_busy", False):
+            self._media_refresh_again = True
+            self._media_refresh_check = getattr(self, "_media_refresh_check", False) or check_obs_video
+            return
+        self._media_refresh_busy = True
+        self._media_refresh_again = False
+        self._media_refresh_check = False
         mode = int(self.mode_var.get())
+
+        def complete(snapshot):
+            self._media_refresh_busy = False
+            if self._media_refresh_again or mode != int(self.mode_var.get()):
+                self.refresh_media_feeds(check_obs_video or self._media_refresh_check)
+                return
+            self.render_media_feed_snapshot(mode, *snapshot)
+
+        def failed(error):
+            self._media_refresh_busy = False
+            self.media_feed_status_var.set(f"Feed status check failed: {error}")
+            if self.current_page == "Media Feeds":
+                self.media_feed_refresh_after = self.after(2000, self.refresh_media_feeds)
+
+        self.run_background(lambda: self.collect_media_feed_snapshot(mode, check_obs_video), complete, failed)
+
+    def collect_media_feed_snapshot(self, mode, check_obs_video):
+        states = media_feed_service.all_states()
         # Screenshot requests are useful when explicitly checking a feed, but
         # polling every running source every two seconds can cause playback hitches.
         obs_states = self.media_obs_signal_states(mode, states) if check_obs_video else {}
+        activities = {slot: media_feed_service.stream_activity(slot)
+                      for slot, state in states.items() if state.get("status") == "running"}
+        for slot, message in obs_states.items():
+            detected = message == "OBS video detected"
+            if bool(states[slot].get("obs_video_detected")) != detected:
+                media_feed_service.set_obs_video_detected(slot, detected, states[slot].get("worker_pid"))
+        return states, obs_states, activities
+
+    def render_media_feed_snapshot(self, mode, states, obs_states, activities) -> None:
+        frame = self.media_feed_rows_frame
         visible_slots = list(range(1, mode + 1))
         if set(self.media_feed_rows) != set(visible_slots):
             for child in frame.winfo_children():
@@ -1139,12 +1179,10 @@ class RestreamApp(tk.Tk):
             twitch = runner.twitch_name if runner else str(state.get("twitch_name") or "")
             status = str(state.get("status") or "stopped").title()
             message = str(state.get("message") or "Not running")
-            activity = media_feed_service.stream_activity(slot) if status == "Running" else "unknown"
+            activity = activities.get(slot, "unknown")
             obs_message = obs_states.get(slot)
             if obs_message:
                 detected = obs_message == "OBS video detected"
-                if bool(state.get("obs_video_detected")) != detected:
-                    media_feed_service.set_obs_video_detected(slot, detected)
                 if detected:
                     latency = str(state.get("latency_mode") or "Stable")
                     message = f"OBS video detected. Streamlink HTTP feed is running in {latency} mode."
@@ -1200,7 +1238,9 @@ class RestreamApp(tk.Tk):
                 results[slot] = "OBS media source not found"
         return results
 
-    def start_media_selected_race(self) -> None:
+    def start_media_selected_race(self, checked=None) -> None:
+        if checked is None and self.stream_launch_busy():
+            return
         if getattr(self, "_media_bulk_start_active", False):
             messagebox.showinfo("Direct feeds starting", "Restream Control is already starting this race one runner at a time.")
             return
@@ -1214,17 +1254,20 @@ class RestreamApp(tk.Tk):
             self.media_feed_status_var.set("Media feeds blocked: " + "; ".join(errors))
             return
         try:
-            output_client = obs_crop_service.connect()
-            streaming, recording = self.obs_output_activity(output_client)
-        except Exception:
-            streaming = recording = False
-        try:
             mode = int(self.mode_var.get())
             selected = self.get_selected_runners()
-            available_slots, stream_errors = self.partition_available_streams(selected, range(1, mode + 1))
+            if checked is None:
+                self.check_streams_then(selected, range(1, mode + 1), self.start_media_selected_race)
+                return
+            available_slots, stream_errors = checked
             if not available_slots:
                 messagebox.showerror("Streams unavailable", "\n".join(stream_errors))
                 return
+            try:
+                output_client = obs_crop_service.connect()
+                streaming, recording = self.obs_output_activity(output_client)
+            except Exception:
+                streaming = recording = False
             self.save_new_runners_to_list(selected)
             comms = self.get_comms()
             mod.update_obs_text_files(mode, selected, comms)
@@ -1310,7 +1353,9 @@ class RestreamApp(tk.Tk):
         self.log_status(self.media_feed_status_var.get())
         start_next()
 
-    def start_media_slot(self, slot: int) -> None:
+    def start_media_slot(self, slot: int, checked=None) -> None:
+        if checked is None and self.stream_launch_busy():
+            return
         runner = self.media_runner_for_slot(slot)
         if not runner:
             messagebox.showerror("Media feeds", f"Select a runner for R{slot} on Setup first.")
@@ -1319,7 +1364,10 @@ class RestreamApp(tk.Tk):
         if errors:
             messagebox.showerror("Media feeds blocked", "\n".join(errors))
             return
-        available, stream_errors = self.partition_available_streams({slot: runner}, [slot])
+        if checked is None:
+            self.check_streams_then({slot: runner}, [slot], lambda result: self.start_media_slot(slot, result))
+            return
+        available, stream_errors = checked
         if not available:
             messagebox.showerror("Stream unavailable", "\n".join(stream_errors))
             return
@@ -1338,6 +1386,7 @@ class RestreamApp(tk.Tk):
             messagebox.showerror("Media feeds", str(exc))
 
     def stop_media_slot(self, slot: int) -> None:
+        self._stream_check_token = None
         media_feed_service.stop_slot(slot)
         self.media_feed_status_var.set(f"Stopped R{slot} local feed.")
         self.log_status(self.media_feed_status_var.get())
@@ -1346,6 +1395,7 @@ class RestreamApp(tk.Tk):
     def stop_all_media_feeds(self) -> None:
         if not messagebox.askyesno("Stop local feeds", "Stop all local Streamlink feeds?"):
             return
+        self._stream_check_token = None
         self._media_bulk_start_token = None
         self._media_bulk_start_active = False
         media_feed_service.stop_all()
@@ -2164,7 +2214,7 @@ class RestreamApp(tk.Tk):
 
         tk.Label(
             parent,
-            text="Playback follows Setup. Draw one box for each runner part, text, or image area. Facecam is an extra crop of that runner feed in Direct OBS mode. Hold Shift and click boxes to select multiple; use arrow keys to nudge selected boxes. Click empty space to clear selection.",
+            text="Playback follows Setup. Draw boxes for runner feeds, runner names, and commentary. Add extra text and images directly in OBS. Facecam is an extra crop of that runner feed in Direct OBS mode. Hold Shift and click boxes to select multiple; use arrow keys to nudge selected boxes. Click empty space to clear selection.",
             bg=BG,
             fg=MUTED,
             font=("Segoe UI", 9),
@@ -2205,30 +2255,6 @@ class RestreamApp(tk.Tk):
         selected.pack(fill="x", pady=(4, 0))
         tk.Label(selected, text="Selected:", bg=BG, fg=TEXT, font=("Segoe UI", 9, "bold")).pack(side="left")
         tk.Label(selected, textvariable=self.layout_region_details_var, bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(6, 0))
-
-        text_tools = tk.Frame(parent, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
-        text_tools.pack(fill="x", pady=(6, 0))
-        tk.Label(text_tools, text="Text Box", bg=PANEL, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(10, 8), pady=8)
-        tk.Entry(text_tools, textvariable=self.layout_text_var, bg=INPUT_BG, fg=TEXT, insertbackground=TEXT, relief="flat").pack(side="left", fill="x", expand=True, padx=(0, 8), pady=8, ipady=5)
-        self.button(text_tools, "Update Text", self.update_selected_layout_text, compact=True).pack(side="left", padx=(0, 10), pady=8)
-        self.button(text_tools, "Clear Text Boxes", self.clear_layout_text_regions, compact=True, danger=True).pack(side="left", padx=(0, 10), pady=8)
-
-        image_tools = tk.Frame(parent, bg=PANEL, highlightbackground=BORDER, highlightthickness=1)
-        image_tools.pack(fill="x", pady=(6, 0))
-        tk.Label(image_tools, text="Image", bg=PANEL, fg=TEXT, font=("Segoe UI", 10, "bold")).pack(side="left", padx=(10, 8), pady=8)
-        tk.Label(image_tools, text="Layer", bg=PANEL, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(0, 6), pady=8)
-        image_layer_combo = ttk.Combobox(
-            image_tools,
-            textvariable=self.layout_image_region_layer_var,
-            values=["Behind feeds", "Above feeds", "Above overlay"],
-            state="readonly",
-            width=14,
-        )
-        image_layer_combo.pack(side="left", padx=(0, 8), pady=8, ipady=5)
-        image_layer_combo.bind("<<ComboboxSelected>>", self.update_selected_layout_image_layer)
-        tk.Entry(image_tools, textvariable=self.layout_image_path_var, bg=INPUT_BG, fg=TEXT, insertbackground=TEXT, relief="flat").pack(side="left", fill="x", expand=True, padx=(0, 8), pady=8, ipady=5)
-        self.button(image_tools, "Choose Image", self.choose_layout_region_image, compact=True).pack(side="left", padx=(0, 8), pady=8)
-        self.button(image_tools, "Update Image", self.update_selected_layout_image, compact=True).pack(side="left", padx=(0, 10), pady=8)
 
         self.load_layout_designer(show_status=False)
 
@@ -2315,6 +2341,7 @@ class RestreamApp(tk.Tk):
         self.layout_bg_path = path
         self.layout_bg_source = None
         self.layout_bg_photo = None
+        self._layout_bg_cache_key = None
         if path and Path(path).exists():
             try:
                 self.layout_bg_source = Image.open(path).convert("RGBA")
@@ -2870,6 +2897,19 @@ class RestreamApp(tk.Tk):
         return f"{layout} {region_type}".strip()
 
     def redraw_layout_designer(self) -> None:
+        if getattr(self, "_layout_redraw_after", None) is None:
+            self._layout_redraw_after = self.after(16, self.draw_layout_designer)
+
+    def layout_background_photo(self, width: int, height: int):
+        key = (id(self.layout_bg_source), width, height)
+        if getattr(self, "_layout_bg_cache_key", None) != key:
+            bg = self.layout_bg_source.resize((width, height), Image.LANCZOS)
+            self.layout_bg_photo = ImageTk.PhotoImage(bg)
+            self._layout_bg_cache_key = key
+        return self.layout_bg_photo
+
+    def draw_layout_designer(self) -> None:
+        self._layout_redraw_after = None
         canvas = self.layout_canvas
         if canvas is None:
             return
@@ -2878,9 +2918,8 @@ class RestreamApp(tk.Tk):
         canvas.create_rectangle(x0, y0, x0 + draw_w, y0 + draw_h, outline=BORDER, width=2, fill="#0d1012")
 
         if self.layout_bg_source is not None:
-            bg = self.layout_bg_source.resize((max(1, int(draw_w)), max(1, int(draw_h))), Image.LANCZOS)
-            self.layout_bg_photo = ImageTk.PhotoImage(bg)
-            canvas.create_image(x0, y0, image=self.layout_bg_photo, anchor="nw")
+            photo = self.layout_background_photo(max(1, int(draw_w)), max(1, int(draw_h)))
+            canvas.create_image(x0, y0, image=photo, anchor="nw")
 
         minor_grid = "#1a232d"
         major_grid = "#32404d"
@@ -3161,8 +3200,6 @@ class RestreamApp(tk.Tk):
             f"Background {layout} Outlines",
             "Background Image [placeholder]",
         })
-        for index in range(1, MAX_EXTRA_TEXT_REGIONS + 1):
-            candidates.add(f"{layout} Text {index}")
         return candidates
 
     def remove_unused_layout_sources(self) -> None:
@@ -3518,6 +3555,37 @@ class RestreamApp(tk.Tk):
     def mapped_designer_layer_order_names(self, ordered_names: list[str], source_map: dict[str, Any]) -> list[str]:
         return [str(source_map.get(name, name)) for name in ordered_names]
 
+    def apply_designer_scene_order(self, client, scene_name, ordered_names, scene_items, media_target=False) -> list[str]:
+        """Reorder managed items only within their existing layer slots."""
+        try:
+            response = client.get_scene_item_list(scene_name)
+            records = sorted(self.obs_response_value(response, "sceneItems", "scene_items", default=[]),
+                             key=lambda item: item["sceneItemIndex"])
+            current = [item["sceneItemId"] for item in records]
+            indices = [item["sceneItemIndex"] for item in records]
+            desired = []
+            for name in ordered_names:
+                item_id = scene_items.get(name)
+                stored = obs_crop_service.media_item_location(name) if media_target else None
+                if stored and stored[0] == scene_name:
+                    item_id = stored[1]
+                if item_id in current and item_id not in desired:
+                    desired.append(item_id)
+            positions = [index for index, item_id in enumerate(current) if item_id in desired]
+            for position, wanted in zip(positions, desired):
+                other = current.index(wanted)
+                if other == position:
+                    continue
+                # Swap two managed items. Intermediate OBS-owned items return
+                # to exactly their original indices after the pair of moves.
+                displaced = current[position]
+                client.set_scene_item_index(scene_name, displaced, indices[other])
+                client.set_scene_item_index(scene_name, wanted, indices[position])
+                current[position], current[other] = wanted, displaced
+            return []
+        except Exception as exc:
+            return [f"FAILED  layout layer order: {exc}"]
+
     def apply_designer_layout_to_obs(
         self,
         data: dict[str, Any],
@@ -3534,7 +3602,11 @@ class RestreamApp(tk.Tk):
         image_layer = str(data.get("layout_image_layer", "Overlay above feeds") or "Overlay above feeds")
         if not isinstance(regions, list):
             regions = []
-        regions = [self.normalize_layout_region(region) for region in regions if isinstance(region, dict)]
+        # Keep legacy decorations in saved layouts, but OBS now owns them.
+        regions = [
+            self.normalize_layout_region(region) for region in regions
+            if isinstance(region, dict) and region.get("type") not in {"Text", "Image"}
+        ]
         if not regions and not background_path:
             messagebox.showinfo("OBS Layout", "There are no layout regions or layout image to apply.")
             return
@@ -3622,11 +3694,7 @@ class RestreamApp(tk.Tk):
                 lines.append("SKIP    no designer regions saved for this layout")
                 scene_items = self.scene_item_map(client, scene_name)
                 ordered_names = self.mapped_designer_layer_order_names(self.designer_layer_order_names(layout, [], media_target), source_map)
-                order_failures = (
-                    self.apply_media_scene_item_order(client, scene_name, ordered_names, scene_items)
-                    if media_target
-                    else self.apply_template_order(client, scene_name, ordered_names, scene_items)
-                )
+                order_failures = self.apply_designer_scene_order(client, scene_name, ordered_names, scene_items, media_target)
                 if order_failures:
                     failed += len(order_failures)
                     lines.extend(order_failures)
@@ -3690,11 +3758,7 @@ class RestreamApp(tk.Tk):
                     lines.append(f"FAILED  {source_name}: {exc}")
             scene_items = self.scene_item_map(client, scene_name)
             ordered_names = self.mapped_designer_layer_order_names(self.designer_layer_order_names(layout, layout_regions, media_target), source_map)
-            order_failures = (
-                self.apply_media_scene_item_order(client, scene_name, ordered_names, scene_items)
-                if media_target
-                else self.apply_template_order(client, scene_name, ordered_names, scene_items)
-            )
+            order_failures = self.apply_designer_scene_order(client, scene_name, ordered_names, scene_items, media_target)
             if order_failures:
                 failed += len(order_failures)
                 lines.extend(order_failures)
@@ -3912,9 +3976,9 @@ class RestreamApp(tk.Tk):
             tag, release_url, download_url, checksum_url = update_service.select_release_assets(payload)
             self.after(0, lambda: self.apply_update_check_result(tag, release_url, download_url, checksum_url))
         except (URLError, TimeoutError, json.JSONDecodeError, RuntimeError) as exc:
-            self.after(0, lambda: self.apply_update_check_error(str(exc)))
+            self.after(0, self.apply_update_check_error, str(exc))
         except Exception as exc:
-            self.after(0, lambda: self.apply_update_check_error(f"Could not check for updates: {exc}"))
+            self.after(0, self.apply_update_check_error, f"Could not check for updates: {exc}")
 
     def apply_update_check_result(self, tag: str, release_url: str, download_url: str, checksum_url: str = "") -> None:
         self.update_release_url = release_url
@@ -3995,7 +4059,7 @@ class RestreamApp(tk.Tk):
             shutil.copy2(package_root / "apply_update.ps1", helper)
             self.after(0, lambda: self._handoff_update("Install", package_root, helper, self.update_available_tag))
         except Exception as exc:
-            self.after(0, lambda: self._update_prepare_failed(str(exc)))
+            self.after(0, self._update_prepare_failed, str(exc))
 
     def _update_prepare_failed(self, message: str) -> None:
         if self.update_download_button:
@@ -4587,7 +4651,9 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
         except Exception as exc:
             messagebox.showerror("Could not write names", str(exc))
 
-    def launch_from_gui(self) -> None:
+    def launch_from_gui(self, checked=None) -> None:
+        if checked is None and self.stream_launch_busy():
+            return
         if playback_engine_key(self.playback_engine_var.get()) == "OBS Media Feeds":
             self.start_media_selected_race()
             return
@@ -4603,7 +4669,10 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
                 messagebox.showerror("Launch blocked", "\n".join(errors))
                 self.log_status("Launch blocked: " + "; ".join(errors))
                 return
-            available_slots, stream_errors = self.partition_available_streams(selected, range(1, mode + 1))
+            if checked is None:
+                self.check_streams_then(selected, range(1, mode + 1), self.launch_from_gui)
+                return
+            available_slots, stream_errors = checked
             if not available_slots:
                 messagebox.showerror("Streams unavailable", "\n".join(stream_errors))
                 self.log_status("Launch blocked: no selected streams are available.")
@@ -4653,7 +4722,9 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             raise RuntimeError("The saved race has no usable runners.")
         return mode, selected, str(race.get("comms", "") or "")
 
-    def relaunch_current_race(self, reason: str = "Relaunch") -> bool:
+    def relaunch_current_race(self, reason: str = "Relaunch", checked=None) -> bool:
+        if checked is None and self.stream_launch_busy():
+            return False
         mod = self.launch_mod
         if not mod:
             messagebox.showerror(reason, "launch_crosskeys.py could not be loaded.")
@@ -4665,7 +4736,10 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
                 messagebox.showerror(f"{reason} blocked", "\n".join(errors))
                 self.log_status(f"{reason} blocked: " + "; ".join(errors))
                 return False
-            available_slots, stream_errors = self.partition_available_streams(selected, sorted(selected))
+            if checked is None:
+                self.check_streams_then(selected, sorted(selected), lambda result: self.relaunch_current_race(reason, result))
+                return False
+            available_slots, stream_errors = checked
             if not available_slots:
                 messagebox.showerror(f"{reason} blocked", "\n".join(stream_errors))
                 self.log_status(f"{reason} blocked: no saved streams are available.")
@@ -4697,7 +4771,9 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
     def relaunch_slot_from_gui(self) -> None:
         self.launch_slot_from_setup(replace=False)
 
-    def launch_slot_from_setup(self, replace: bool) -> None:
+    def launch_slot_from_setup(self, replace: bool, checked=None) -> None:
+        if checked is None and self.stream_launch_busy():
+            return
         mod = self.launch_mod
         if not mod:
             messagebox.showerror("Missing launcher", "launch_crosskeys.py could not be loaded.")
@@ -4712,7 +4788,10 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
                 messagebox.showerror(title, "\n".join(errors))
                 self.log_status(f"{title}: " + "; ".join(errors))
                 return
-            _available_slots, stream_errors = self.partition_available_streams({slot: runner}, [slot])
+            if checked is None:
+                self.check_streams_then({slot: runner}, [slot], lambda result: self.launch_slot_from_setup(replace, result))
+                return
+            _available_slots, stream_errors = checked
             if stream_errors:
                 messagebox.showerror("Stream unavailable", "\n".join(stream_errors))
                 action = "Replace" if replace else "Relaunch"
@@ -5077,7 +5156,8 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
         requirements = [
             {
                 "name": "Streamlink",
-                "installed": self.streamlink_available,
+                "installed": self.streamlink_supported,
+                "present": self.streamlink_available,
                 "winget_id": "Streamlink.Streamlink",
                 "download_url": "https://streamlink.github.io/install.html",
             },
@@ -5099,9 +5179,15 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
     def refresh_runtime_requirements(self) -> None:
         engine = playback_display_name(self.playback_engine_var.get())
         requirements = self.playback_runtime_requirements()
-        status = ", ".join(
-            f"{item['name']}: {'installed' if item['installed']() else 'missing'}" for item in requirements
-        )
+        labels = []
+        for item in requirements:
+            if item["name"] == "Streamlink" and item.get("present", lambda: False)():
+                version = self.streamlink_version()
+                labels.append(f"Streamlink: {version or 'version unknown'}"
+                              + ("" if item["installed"]() else " (update required)"))
+            else:
+                labels.append(f"{item['name']}: {'installed' if item['installed']() else 'missing'}")
+        status = ", ".join(labels)
         winget_note = " Windows Package Manager is available." if shutil.which("winget") else " Windows Package Manager is not available; use the download links instead."
         self.wizard_runtime_var.set(f"{engine} requires {status}.{winget_note}")
         if playback_engine_key(self.playback_engine_var.get()) == "OBS Media Feeds":
@@ -5147,8 +5233,9 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             outcomes: list[str] = []
             for item in missing:
                 name = str(item["name"])
+                operation = "upgrade" if item.get("present", lambda: False)() else "install"
                 command = [
-                    "winget", "install", "--id", str(item["winget_id"]), "--exact", "--source", "winget",
+                    "winget", operation, "--id", str(item["winget_id"]), "--exact", "--source", "winget",
                     "--accept-package-agreements", "--accept-source-agreements",
                 ]
                 try:
@@ -6662,6 +6749,12 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
     def streamlink_available(self) -> bool:
         return shutil.which("streamlink") is not None
 
+    def streamlink_version(self) -> str:
+        return media_feed_service.streamlink_version()
+
+    def streamlink_supported(self) -> bool:
+        return media_feed_service.streamlink_supported()
+
     def vlc_available(self) -> bool:
         vlc_candidates = [
             Path(r"C:\Program Files\VideoLAN\VLC\vlc.exe"),
@@ -6673,27 +6766,101 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
         errors = []
         if not self.streamlink_available():
             errors.append("Streamlink was not found. Install Streamlink or add it to PATH.")
+        elif not self.streamlink_supported():
+            version = self.streamlink_version() or "unknown"
+            errors.append(
+                f"Streamlink {version} is too old for Twitch. Update Streamlink to 8.0.0 or newer, "
+                "then restart Restream Control."
+            )
         if not self.vlc_available():
             errors.append("VLC was not found. Install VLC or add vlc.exe to PATH.")
         return errors
 
+    def run_background(self, work, complete, failed) -> None:
+        """Poll a worker from Tk; worker threads never call Tk themselves."""
+        future = Future()
+
+        def worker():
+            try:
+                future.set_result(work())
+            except Exception as exc:
+                future.set_exception(exc)
+
+        def poll():
+            if not future.done():
+                self.after(50, poll)
+                return
+            try:
+                result = future.result()
+            except Exception as exc:
+                failed(str(exc))
+            else:
+                complete(result)
+
+        threading.Thread(target=worker, daemon=True).start()
+        self.after(50, poll)
+
+    def stream_check_context(self):
+        """Reject a result if the user edited the launch setup while waiting."""
+        values = tuple(getattr(self, name).get() for name in (
+            "mode_var", "playback_engine_var", "replace_slot_var",
+            "media_feed_quality_var", "media_feed_latency_var",
+        ))
+        # A single-runner restart is valid even when other rows are empty.
+        runners = tuple((slot, row.enabled_var.get(), row.selected_var.get(),
+                         row.display_var.get(), row.twitch_var.get())
+                        for slot, row in self.runner_rows.items())
+        return values, runners, self.get_comms(), app_state.load_current_race(), app_state.load_config()
+
+    def stream_launch_busy(self) -> bool:
+        busy = getattr(self, "_stream_check_token", None) is not None or getattr(self, "_media_bulk_start_active", False)
+        if busy:
+            self.log_status("A stream launch is already in progress. Please wait for it to finish.")
+        return busy
+
+    def check_streams_then(self, selected, slots, continuation) -> None:
+        if getattr(self, "_stream_check_token", None) is not None or getattr(self, "_media_bulk_start_active", False):
+            self.log_status("A stream launch is already in progress. Please wait for it to finish.")
+            return
+        token = object()
+        context = self.stream_check_context()
+        self._stream_check_token = token
+        selected = copy.deepcopy(selected)
+        slots = list(slots)
+        self.log_status("Checking selected streams...")
+
+        def complete(result):
+            if self._stream_check_token is not token:
+                return
+            try:
+                if context != self.stream_check_context():
+                    self.log_status("Setup changed during the stream check. Click Launch or Restart again to use the new setup.")
+                    return
+                continuation(result)
+            finally:
+                self._stream_check_token = None
+
+        def failed(error):
+            if self._stream_check_token is token:
+                self._stream_check_token = None
+                self.log_status(f"Stream check failed: {error}")
+                messagebox.showerror("Stream check failed", error)
+
+        self.run_background(lambda: self.partition_available_streams(selected, slots), complete, failed)
+
     def partition_available_streams(self, selected: dict[int, Any], slots: Any) -> tuple[list[int], list[str]]:
         available_slots = []
         errors = []
-        for slot in slots:
-            slot_int = int(slot)
-            runner = selected.get(slot_int)
-            if not runner:
-                continue
-            self.log_status(f"Checking Runner {slot} stream: {runner.display_name}...")
-            self.update_idletasks()
-            ok, detail = self.check_twitch_stream_available(runner.twitch_name)
-            if ok:
-                available_slots.append(slot_int)
-            else:
-                errors.append(f"Runner {slot} {runner.display_name}: {detail}")
-        if available_slots:
-            self.log_status(f"Stream availability check passed for {len(available_slots)} slot(s).")
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            checks = [(int(slot), selected[int(slot)], executor.submit(
+                self.check_twitch_stream_available, selected[int(slot)].twitch_name))
+                for slot in slots if selected.get(int(slot))]
+            for slot, runner, future in checks:
+                ok, detail = future.result()
+                if ok:
+                    available_slots.append(slot)
+                else:
+                    errors.append(f"Runner {slot} {runner.display_name}: {detail}")
         return available_slots, errors
 
     def check_twitch_stream_available(self, twitch_name: str) -> tuple[bool, str]:
@@ -6756,6 +6923,11 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
 
     def parse_streamlink_error(self, stdout: str, stderr: str) -> str:
         raw = (stderr or stdout or "").strip()
+        if "PersistedQueryNotFound" in raw:
+            return (
+                "The installed Streamlink Twitch plugin is outdated. Update Streamlink to 8.0.0 or newer, "
+                "then restart Restream Control."
+            )
         for text in [stdout, stderr]:
             text = (text or "").strip()
             if not text:
@@ -6792,7 +6964,8 @@ Get-PnpDevice -Class AudioEndpoint -Status OK -ErrorAction SilentlyContinue |
             (app_state.IS_FROZEN or CROPPING_TOOL.exists() or LEGACY_CROPPING_TOOL.exists(), "Cropping module"),
             (importlib.util.find_spec("PIL") is not None, "Python package: Pillow"),
             (importlib.util.find_spec("obsws_python") is not None, "Python package: obsws-python"),
-            (self.streamlink_available(), "Command available: streamlink"),
+            (self.streamlink_supported(),
+             f"Streamlink {self.streamlink_version() or 'version unknown'} (8.0.0 or newer required)"),
         ]
         if playback_engine_key(self.playback_engine_var.get()) != "OBS Media Feeds":
             results.append((self.vlc_available(), "VLC installed or available on PATH"))

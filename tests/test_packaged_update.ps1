@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 if (!$PackageDir) { $PackageDir = Join-Path $Root "dist\RestreamControl" }
-if (!$ReleaseZip) { $ReleaseZip = Join-Path $Root "release\RestreamControl-v0.3.0.zip" }
+if (!$ReleaseZip) { $ReleaseZip = Join-Path $Root "release\RestreamControl-v0.3.1.zip" }
 $PackageDir = [IO.Path]::GetFullPath($PackageDir)
 $ReleaseZip = [IO.Path]::GetFullPath($ReleaseZip)
 $TestRoot = Join-Path ([IO.Path]::GetTempPath()) ("RestreamControl-UpdaterTest-" + [guid]::NewGuid().ToString("N"))

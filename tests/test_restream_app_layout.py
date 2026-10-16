@@ -15,8 +15,14 @@ import restream_app  # noqa: E402
 
 
 class LayoutGeometryTests(unittest.TestCase):
-    def test_release_version_is_0_3_0(self) -> None:
-        self.assertEqual(restream_app.APP_VERSION, "0.3.0")
+    def test_persisted_query_error_explains_streamlink_upgrade(self) -> None:
+        detail = restream_app.RestreamApp.parse_streamlink_error(
+            types.SimpleNamespace(), "", "error: Error: PersistedQueryNotFound"
+        )
+        self.assertIn("Update Streamlink to 8.0.0 or newer", detail)
+
+    def test_release_version_is_0_3_1(self) -> None:
+        self.assertEqual(restream_app.APP_VERSION, "0.3.1")
 
     def test_preferred_direct_quality_includes_uncommon_native_sizes(self) -> None:
         qualities = restream_app.PREFERRED_DIRECT_QUALITY.split(",")

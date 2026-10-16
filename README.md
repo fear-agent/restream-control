@@ -4,7 +4,17 @@ Restream Control is a Windows app for running 2-player and 4-player restreams in
 
 It supports two playback methods: Streamlink/VLC windows, or local Streamlink HTTP feeds sent directly to OBS. It also writes runner and commentator text files, saves crop presets per runner, helps sync delayed streams, controls OBS audio sources, and can create OBS layouts from either the included template or a custom drawn layout.
 
-## What's New in v0.3.0
+## What's New in v0.3.1
+
+- VLC sync screenshots preserve the complete OBS scene instead of incorrectly slicing custom layouts into a fixed grid.
+- Custom Layout now focuses on runner feeds, runner names, commentary, and the layout background. Extra text and images remain under direct OBS control, including content from older saved layouts.
+- Stream checks and Direct OBS status refreshes run in the background, keeping the app responsive while channels are slow or unavailable.
+- Saved JSON state uses atomic writes and coordinated updates so concurrent feed workers cannot overwrite each other's status.
+- Update-check and update-install failures now restore their buttons and show the actual error.
+- Layout editing caches resized backgrounds and combines rapid redraw requests for smoother dragging and resizing.
+- Streamlink 8.0.0 or newer is required. Setup identifies outdated versions and explains how to upgrade when Twitch rejects an old plugin.
+
+## Previously in v0.3.0
 
 - Settings, runners, crops, layouts, screenshots, logs, and generated OBS text now live in `%LOCALAPPDATA%\RestreamControl`, separate from application files.
 - Existing portable data is migrated automatically when the new version is run from the previous folder. `Settings` also includes `Import Previous Installation` when the new version was extracted elsewhere.
@@ -58,8 +68,8 @@ The release package contains `data\example_runners.csv` only as a first-run seed
 
 - Windows 10/11
 - OBS Studio
-- `VLC Windows` playback: VLC and Streamlink
-- `OBS Media Feeds` playback: Streamlink
+- `VLC Windows` playback: VLC and Streamlink 8.0.0 or newer
+- `OBS Media Feeds` playback: Streamlink 8.0.0 or newer
 
 Python is not required when using the release ZIP.
 

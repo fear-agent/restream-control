@@ -4,8 +4,11 @@ import json
 import os
 import sys
 import tempfile
+import multiprocessing
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 APP_DIR = Path(__file__).resolve().parents[1] / "app"
@@ -13,6 +16,108 @@ os.environ.setdefault("RESTREAM_CONTROL_DATA_DIR", tempfile.mkdtemp(prefix="rest
 sys.path.insert(0, str(APP_DIR))
 
 import app_state  # noqa: E402
+
+
+def increment_saved_state(path, key):
+    for _ in range(20):
+        def update(data):
+            data[key] = data.get(key, 0) + 1
+            data["total"] = data.get("total", 0) + 1
+            return data
+        app_state.update_json(Path(path), update)
+
+
+def interrupt_before_replace(path, ready):
+    def blocked_replace(source, destination):
+        ready.set()
+        time.sleep(30)
+    with mock.patch.object(app_state.os, "replace", side_effect=blocked_replace):
+        app_state.save_json(Path(path), {"value": "new"})
+
+
+class AtomicStateTests(unittest.TestCase):
+    def test_transient_windows_sharing_conflict_is_retried(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "state.json"
+            with mock.patch.object(Path, "read_text", side_effect=[PermissionError("sharing"), '{"saved": true}']):
+                self.assertEqual(app_state.load_json(path, {}), {"saved": True})
+            original_replace = os.replace
+            calls = []
+            def replace(source, destination):
+                calls.append(source)
+                if len(calls) == 1:
+                    raise PermissionError("sharing")
+                original_replace(source, destination)
+            with mock.patch.object(app_state.os, "replace", side_effect=replace):
+                app_state.save_json(path, {"saved": True})
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(app_state.load_json(path, {}), {"saved": True})
+
+    def test_failed_replace_preserves_previous_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "state.json"
+            app_state.save_json(path, {"saved": True})
+            with mock.patch.object(app_state.os, "replace", side_effect=OSError("simulated interruption")):
+                with self.assertRaises(OSError):
+                    app_state.save_json(path, {"saved": False})
+            self.assertEqual(app_state.load_json(path, {}), {"saved": True})
+            self.assertEqual(list(Path(folder).glob("*.tmp")), [])
+
+    def test_damaged_file_is_reported_and_preserved(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "state.json"
+            path.write_bytes(b'{"unfinished":')
+            with self.assertRaisesRegex(app_state.StateFileError, "preserved"):
+                app_state.load_json(path, {})
+            with self.assertRaises(app_state.StateFileError):
+                app_state.save_json(path, {"new": True})
+            self.assertEqual(path.read_bytes(), b'{"unfinished":')
+            self.assertEqual(app_state.load_json(Path(folder) / "missing.json", {}), {})
+
+    def test_process_updates_preserve_all_fields_and_totals(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "state.json"
+            app_state.save_json(path, {})
+            context = multiprocessing.get_context("spawn")
+            processes = [context.Process(target=increment_saved_state, args=(str(path), f"worker{n}"))
+                         for n in range(4)]
+            try:
+                for process in processes:
+                    process.start()
+                previous_total = 0
+                deadline = time.monotonic() + 20
+                while any(process.is_alive() for process in processes) and time.monotonic() < deadline:
+                    snapshot = app_state.load_json(path, {})
+                    self.assertGreaterEqual(snapshot.get("total", 0), previous_total)
+                    previous_total = snapshot.get("total", 0)
+                    time.sleep(0.002)
+                for process in processes:
+                    process.join(20)
+                    self.assertEqual(process.exitcode, 0)
+                self.assertEqual(app_state.load_json(path, {}), {
+                    "total": 80, **{f"worker{n}": 20 for n in range(4)}})
+            finally:
+                for process in processes:
+                    if process.is_alive():
+                        process.terminate()
+                        process.join()
+
+    def test_terminated_writer_preserves_file_and_releases_lock(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "state.json"
+            app_state.save_json(path, {"value": "old"})
+            context = multiprocessing.get_context("spawn")
+            ready = context.Event()
+            process = context.Process(target=interrupt_before_replace, args=(str(path), ready))
+            process.start()
+            try:
+                self.assertTrue(ready.wait(5))
+            finally:
+                process.terminate()
+                process.join(5)
+            self.assertEqual(app_state.load_json(path, {}), {"value": "old"})
+            app_state.save_json(path, {"value": "recovered"})
+            self.assertEqual(app_state.load_json(path, {}), {"value": "recovered"})
 
 
 class AppStateMigrationTests(unittest.TestCase):

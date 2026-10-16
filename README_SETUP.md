@@ -2,7 +2,7 @@
 
 Use this guide when setting up Restream Control on a new Windows machine.
 
-This guide applies to Restream Control v0.3.0.
+This guide applies to Restream Control v0.3.1.
 
 ## 1. Install Required Programs
 

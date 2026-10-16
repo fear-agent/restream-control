@@ -501,6 +501,7 @@ class SyncPanel(tk.Frame):
                 image,
                 slots or [1, 2, 3, 4],
                 layout,
+                fallback_grid=path.name.startswith("vlc_grid_sync_"),
             )
             self.draw_timer_preview()
         except Exception as exc:
@@ -547,14 +548,13 @@ class SyncPanel(tk.Frame):
         self.timer_preview_offset = [offset_x + event.x - start_x, offset_y + event.y - start_y]
         self.draw_timer_preview()
 
-    def crop_timer_preview_image(self, image, slots: list[int], layout: str = "4P"):
+    def crop_timer_preview_image(self, image, slots: list[int], layout: str = "4P", *, fallback_grid: bool = False):
+        # OBS screenshots are complete scenes with arbitrary layouts. Only the
+        # explicitly identified VLC fallback collage has fixed quadrants.
+        if not fallback_grid:
+            return image
         slots = sorted(set(slots))
         if not slots:
-            return image
-        if app_state.normalize_layout(layout) == "2P" and self.is_media_feed_mode():
-            # Direct 2P scenes place R1 and R2 side by side in one complete
-            # OBS frame. The quadrant extraction below is only valid for the
-            # column-major 4P layout and would splice the 2P frame incorrectly.
             return image
         gap = 8
         label_height = 28
@@ -659,7 +659,7 @@ class SyncPanel(tk.Frame):
                 draw.text((x + 8, y + label_height + 8), "Not captured", fill=(156, 163, 175))
 
         SYNC_SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
-        path = SYNC_SCREENSHOT_DIR / f"timer_sync_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        path = SYNC_SCREENSHOT_DIR / f"vlc_grid_sync_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
         canvas.save(path)
         return path
 
