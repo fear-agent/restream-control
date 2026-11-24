@@ -16,7 +16,6 @@ from ctypes import wintypes
 from io import BytesIO
 import os
 import re
-import subprocess
 import threading
 import time
 from dataclasses import dataclass
@@ -38,11 +37,8 @@ except Exception:
     ImageGrab = None
     ImageTk = None
 
-ROOT = app_state.APP_DIR
 LAST_SETUP = app_state.LAST_SETUP_FILE
 SYNC_SCREENSHOT_DIR = app_state.SYNC_SCREENSHOT_DIR
-QUALITY = "720p60,720p,480p,360p,1080p60,1080p,best"
-VLC_PLAYER_ARGS = "--no-video-title-show --no-osd --no-qt-privacy-ask --play-and-pause {playerinput}"
 
 BG = "#101113"
 PANEL = "#202327"
@@ -70,7 +66,6 @@ VK_SPACE = 0x20
 WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
 WM_CHAR = 0x0102
-WM_CLOSE = 0x0010
 SW_RESTORE = 9
 
 
@@ -152,21 +147,6 @@ def toggle_runner(window: RunnerWindow) -> None:
         post_space_to(child)
 
 
-def close_window(window: RunnerWindow) -> None:
-    PostMessageW(window.hwnd, WM_CLOSE, 0, 0)
-
-
-def find_vlc() -> str:
-    candidates = [
-        r"C:\Program Files\VideoLAN\VLC\vlc.exe",
-        r"C:\Program Files (x86)\VideoLAN\VLC\vlc.exe",
-    ]
-    for candidate in candidates:
-        if Path(candidate).exists():
-            return candidate
-    return "vlc"
-
-
 def normalize_twitch(value: str) -> str:
     value = clean(value)
     value = value.lstrip("@").strip()
@@ -176,30 +156,6 @@ def normalize_twitch(value: str) -> str:
         value = value.split("/", 1)[1]
     value = value.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
     return value.strip()
-
-
-def launch_stream(slot: int, twitch_name: str) -> None:
-    twitch_name = normalize_twitch(twitch_name)
-    if not twitch_name:
-        raise ValueError("Missing Twitch name")
-    title = f"RUNNER {slot}"
-    player = find_vlc()
-    cmd = [
-        "streamlink",
-        "--twitch-low-latency",
-        "--player-no-close",
-        "--player", player,
-        "--player-args", VLC_PLAYER_ARGS,
-        "--title", title,
-        f"https://twitch.tv/{twitch_name}",
-        QUALITY,
-    ]
-    if os.name == "nt":
-        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
-        subprocess.Popen(cmd, cwd=str(ROOT), creationflags=flags,
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    else:
-        subprocess.Popen(cmd, cwd=str(ROOT))
 
 
 def parse_last_setup() -> Dict[int, RunnerInfo]:
@@ -255,6 +211,7 @@ class SyncPanel(tk.Frame):
     def __init__(self, parent: tk.Widget, standalone: bool = False) -> None:
         super().__init__(parent, bg=BG)
         self.root = self.winfo_toplevel()
+        self.standalone = standalone
         if standalone:
             self.root.title("Restream Sync Tool")
             self.root.geometry("1280x760")
@@ -310,37 +267,41 @@ class SyncPanel(tk.Frame):
 
         top = ttk.Frame(outer)
         top.pack(fill="x", pady=(0, 12))
-        ttk.Label(top, text="Playback:").pack(side="left", padx=(0, 6))
-        ttk.Label(top, textvariable=self.sync_source_var).pack(side="left")
-        ttk.Button(top, text="Refresh Status", command=self.refresh_all).pack(side="right", padx=(8, 0))
-        ttk.Button(top, text="Return All To Live", command=self.return_all_media_to_live).pack(side="right", padx=(8, 0))
-        ttk.Button(top, text="Clear Timer Images", command=self.clear_timer_screenshots).pack(side="right", padx=(8, 0))
+        if self.standalone:
+            ttk.Label(top, textvariable=self.sync_source_var).pack(side="left")
+        ttk.Button(top, text="Refresh Runners", command=self.refresh_all).pack(side="right", padx=(8, 0))
+        self.return_to_live_button = ttk.Button(top, text="Return All to Live", command=self.return_all_media_to_live)
+        self.return_to_live_button.pack(side="right", padx=(8, 0))
+        clear_images = ttk.Button(top, text="Clear Timer Images", command=self.clear_timer_screenshots)
+        clear_images.pack(side="right", padx=(8, 0))
+        self.clear_timer_images_button = clear_images
 
         content = ttk.Frame(outer)
         content.pack(fill="both", expand=True)
 
+        content.rowconfigure(0, weight=1)
+        content.columnconfigure(0, weight=1)
+        content.columnconfigure(1, minsize=360)
         left = ttk.Frame(content)
-        left.pack(side="left", fill="both", expand=True, padx=(0, 12))
-        right = ttk.Frame(content)
-        right.pack(side="left", fill="both")
-        right.configure(width=350)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        right = ttk.Frame(content, width=360)
+        right.grid(row=0, column=1, sticky="nsew")
         right.pack_propagate(False)
 
         preview_frame = ttk.Frame(left)
         preview_frame.pack(fill="both", expand=True, pady=(0, 10))
         preview_actions = ttk.Frame(preview_frame)
         preview_actions.pack(fill="x", pady=(0, 4))
-        ttk.Label(preview_actions, text="Timer Screenshot", font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 12))
-        ttk.Button(preview_actions, text="Screenshot", command=self.create_timer_sync_screenshot).pack(side="left", padx=(0, 8))
+        ttk.Button(preview_actions, text="Capture Frame", command=self.create_timer_sync_screenshot).pack(side="left", padx=(0, 8))
         ttk.Button(preview_actions, text="Open Image", command=self.open_last_timer_screenshot).pack(side="left", padx=(0, 8))
         ttk.Button(preview_actions, text="Reset View", command=self.reset_timer_preview_view).pack(side="left", padx=(0, 8))
         self.timer_preview_status_var = tk.StringVar(value="No timer screenshot loaded.")
-        ttk.Label(preview_actions, textvariable=self.timer_preview_status_var).pack(side="left", padx=(8, 0))
-        ttk.Label(
-            preview_frame,
-            textvariable=self.sync_instruction_var,
-            foreground=MUTED,
-        ).pack(fill="x", pady=(0, 6))
+        ttk.Label(preview_actions, textvariable=self.timer_preview_status_var,
+                  foreground=MUTED).pack(side="left", padx=(8, 0))
+        instructions = ttk.Label(preview_frame, textvariable=self.sync_instruction_var,
+                                 foreground=MUTED, wraplength=560)
+        instructions.pack(fill="x", pady=(0, 6))
+        instructions.bind("<Configure>", lambda event: instructions.configure(wraplength=max(150, event.width)))
         self.timer_preview_canvas = tk.Canvas(
             preview_frame,
             bg=INPUT_BG,
@@ -395,12 +356,15 @@ class SyncPanel(tk.Frame):
 
     def update_sync_mode_ui(self) -> None:
         if self.is_media_feed_mode():
+            if not self.return_to_live_button.winfo_manager():
+                self.return_to_live_button.pack(side="right", padx=(8, 0), before=self.clear_timer_images_button)
             self.sync_instruction_var.set(
-                "Capture one OBS race-scene frame, compare the timer values, then use the calculator. Direct delays use OBS's native async filter without restarting the feed. Mouse wheel zooms; drag to pan."
+                "Capture an OBS frame and compare the runner timers. OBS applies the delay without restarting the feed."
             )
         else:
+            self.return_to_live_button.pack_forget()
             self.sync_instruction_var.set(
-                "Capture one OBS race-scene frame so every timer shows the same instant, then use the calculator below. Mouse wheel zooms; drag to pan."
+                "Capture an OBS frame and compare the runner timers. VLC pauses the selected runner to add delay."
             )
 
     def on_sync_mode_changed(self, _event=None) -> None:
@@ -733,12 +697,12 @@ class SyncPanel(tk.Frame):
         if self.is_media_feed_mode():
             states = media_feed_service.all_states()
             running = sum(1 for state_info in states.values() if state_info.get("status") == "running")
-            self.summary_var.set(f"Detected {running} running local OBS media feed(s). Direct delays are applied inside OBS without restarting feeds.")
+            self.summary_var.set(f"OBS feeds running: {running}")
             if log:
                 self.log_message(f"Refreshed OBS Media Feeds. Found {running} running feed(s).")
             return
         self.windows = list_runner_windows()
-        self.summary_var.set(f"Detected {len(self.windows)} runner VLC window(s). Refresh after relaunching or replacing a runner.")
+        self.summary_var.set(f"VLC runner windows open: {len(self.windows)}")
         if log:
             self.log_message(f"Refreshed VLC windows. Found {len(self.windows)} runner VLC window(s).")
 
@@ -807,6 +771,8 @@ class SyncPanel(tk.Frame):
             slot = int(self.calc_slot_var.get())
         except ValueError:
             messagebox.showwarning("Time calculator", "Choose a runner slot.")
+            return
+        if slot in self.busy_slots:
             return
         seconds = self.last_calculated_seconds
         if self.is_media_feed_mode():
@@ -1085,12 +1051,9 @@ class SyncPanel(tk.Frame):
 
         def worker() -> None:
             try:
-                window = self.windows.get(slot)
-                if window:
-                    close_window(window)
-                    time.sleep(1.0)
-                launch_stream(slot, twitch)
-                time.sleep(3.0)
+                from launch_crosskeys import Runner, launch_stream
+
+                launch_stream(slot, Runner(info.display_name if info else twitch, twitch), restart=True)
                 self.root.after(0, self.refresh_windows)
             except Exception as exc:
                 self.root.after(0, self.log_message, f"ERROR reloading RUNNER {slot}: {exc}")

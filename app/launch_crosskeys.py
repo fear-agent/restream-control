@@ -28,12 +28,14 @@ import os
 import re
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 import app_state
+import media_feed_service
 
 ROOT = app_state.APP_DIR
 REPO_ROOT = app_state.REPO_ROOT
@@ -44,9 +46,11 @@ LAST_SETUP = app_state.LAST_SETUP_FILE
 QUALITY = str(app_state.load_config().get("quality", app_state.DEFAULT_CONFIG["quality"]))
 
 
-def vlc_player_args() -> str:
-    args = ["--no-video-title-show", "--no-osd", "--no-qt-privacy-ask", "--play-and-pause"]
-    vlc_audio_device = str(app_state.load_config().get("vlc_audio_device", "")).strip()
+def vlc_player_args(config: dict | None = None) -> str:
+    if config is None:
+        config = app_state.load_config()
+    args = ["--no-one-instance", "--no-video-title-show", "--no-osd", "--no-qt-privacy-ask", "--play-and-pause"]
+    vlc_audio_device = str(config.get("vlc_audio_device", "")).strip()
     if vlc_audio_device:
         args.extend(["--aout=mmdevice", f"--mmdevice-audio-device={vlc_audio_device}"])
     args.append("{playerinput}")
@@ -377,50 +381,56 @@ def get_vlc_player() -> str:
     return "vlc"
 
 
-def launch_stream(slot: int, runner: Runner) -> None:
+def vlc_log_path(slot: int) -> Path:
+    return app_state.STATE_DIR / "vlc" / f"runner_{slot}.log"
+
+
+def launch_stream(slot: int, runner: Runner, *, restart: bool = False) -> None:
+    """Launch a runner and wait for a new VLC capture window on Windows."""
+    from stream_syncer import list_runner_windows
+
     title = SOURCE_TITLES[slot]
-    url = f"https://twitch.tv/{runner.twitch_name}"
-    player = get_vlc_player()
-
+    config = app_state.load_config()
+    latency = media_feed_service.normalize_latency_mode(config.get("vlc_latency"))
+    latency_args = ["--twitch-low-latency"] if latency == "Low latency" else ["--hls-live-edge", "3"]
     cmd = [
-        "streamlink",
-        "--twitch-low-latency",
-        "--player-no-close",
-        "--player", player,
-        "--player-args", vlc_player_args(),
+        "streamlink", "--loglevel", "info",
+        *latency_args,
+        "--player-no-close", "--player-verbose",
+        "--player", get_vlc_player(),
+        "--player-args", vlc_player_args(config),
         "--title", title,
-        url,
-        QUALITY,
+        f"https://twitch.tv/{runner.twitch_name}",
+        str(config.get("quality") or app_state.DEFAULT_CONFIG["quality"]),
     ]
+    previous = list_runner_windows().get(slot) if os.name == "nt" else None
+    if restart:
+        close_runner_window(slot)
 
-    print(f"Launching {title}: {runner.display_name} - {url}")
+    log_path = vlc_log_path(slot)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
     try:
-        # Detach Streamlink from this launcher console so closing/restarting the control panel
-        # does not kill active VLC/Streamlink feeds.
-        if os.name == "nt":
-            flags = (
-                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-                | getattr(subprocess, "DETACHED_PROCESS", 0)
-                | getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            )
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 0
-            subprocess.Popen(
-                cmd,
-                cwd=str(ROOT),
-                creationflags=flags,
-                startupinfo=startupinfo,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        else:
-            subprocess.Popen(cmd, cwd=str(ROOT))
-    except FileNotFoundError:
-        print("ERROR: streamlink was not found. Confirm Streamlink is installed and available in PowerShell/CMD.")
-    except Exception as exc:
-        print(f"ERROR launching {title}: {exc}")
+        with log_path.open("w", encoding="utf-8") as log:
+            process = subprocess.Popen(cmd, cwd=str(ROOT), creationflags=flags,
+                                       stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+    except OSError as exc:
+        raise RuntimeError(f"Could not start {title}: {exc}") from exc
+    if os.name != "nt":
+        return
+
+    deadline = time.monotonic() + 25
+    while time.monotonic() < deadline:
+        result = process.poll()
+        if result is not None:
+            raise RuntimeError(f"{title} Streamlink exited ({result}). See {log_path}")
+        window = list_runner_windows().get(slot)
+        if window and (previous is None or window.hwnd != previous.hwnd):
+            return
+        time.sleep(0.2)
+    if process.poll() is None:
+        process.terminate()
+    raise RuntimeError(f"{title} VLC window did not appear. See {log_path}")
 
 
 def format_comms(raw: str) -> str:
@@ -474,7 +484,10 @@ def launch_race(mode: int) -> None:
     print()
     print("OBS text files updated.")
     for slot in range(1, mode + 1):
-        launch_stream(slot, selected[slot])
+        try:
+            launch_stream(slot, selected[slot])
+        except RuntimeError as exc:
+            print(exc)
 
     print()
     print("Next recommended steps:")
@@ -501,6 +514,7 @@ foreach ($p in $procs) {{
         cwd=str(ROOT),
         capture_output=True,
         text=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
 
 
@@ -515,8 +529,11 @@ def relaunch_slot() -> None:
 
     new_runner = prompt_runner(slot, runners)
     yn = input(f"Close existing {SOURCE_TITLES[slot]} VLC window first? [Y/n]: ").strip().lower()
-    if yn in ("", "y", "yes"):
-        close_runner_window(slot)
+    try:
+        launch_stream(slot, new_runner, restart=yn in ("", "y", "yes"))
+    except RuntimeError as exc:
+        print(exc)
+        return
 
     # Update only that runner text file.
     write_text_file(OBS_TEXT_DIR / f"runner{slot}.txt", new_runner.display_name)
@@ -527,8 +544,6 @@ def relaunch_slot() -> None:
                 f"{new_runner.display_name} - twitch.tv/{new_runner.twitch_name}\n")
         f.write(f"  Runner {slot}: {new_runner.display_name} - twitch.tv/{new_runner.twitch_name}\n")
     app_state.update_current_race_slot(slot, new_runner)
-
-    launch_stream(slot, new_runner)
 
 
 

@@ -4,7 +4,14 @@ Restream Control is a Windows app for running 2-player and 4-player restreams in
 
 It supports two playback methods: Streamlink/VLC windows, or local Streamlink HTTP feeds sent directly to OBS. It also writes runner and commentator text files, saves crop presets per runner, helps sync delayed streams, controls OBS audio sources, and can create OBS layouts from either the included template or a custom drawn layout.
 
-## What's New in v0.3.1
+## What's New in v0.3.2
+
+- Direct OBS reports which runner is on each feed and shows when OBS is waiting, buffering, or reconnecting. Queued starts can be canceled without stopping the current feed.
+- The Sync calculator stays visible at the minimum window width. Restarting a Direct feed keeps its sync delay.
+- VLC restarts honor the saved quality and audio device. Stable is the default connection mode, and Low latency is available in Settings.
+- Restream Control checks for new releases at startup and shows an update button when one is available.
+
+## Previously in v0.3.1
 
 - VLC sync screenshots preserve the complete OBS scene instead of incorrectly slicing custom layouts into a fixed grid.
 - Custom Layout now focuses on runner feeds, runner names, commentary, and the layout background. Extra text and images remain under direct OBS control, including content from older saved layouts.
@@ -37,7 +44,7 @@ For normal use, download the latest release ZIP from GitHub Releases.
 
 Keep the extracted folder together. Do not move the exe away from the folders beside it.
 
-To check for future releases from inside the app, open `Settings` and click `Check for Updates`.
+Restream Control checks for new releases at startup. You can change this under **Settings → Updates**.
 
 ## Updating
 
@@ -49,8 +56,8 @@ User data is stored separately from the downloaded application at:
 
 Packaged releases can update themselves from `Settings`:
 
-1. Click `Check for Updates`.
-2. Click `Install` when a newer release is available.
+1. Click **Update available** when it appears. On v0.3.1 or earlier, open **Settings** and click **Check for Updates**.
+2. Click **Install** when you are ready to restart the app. Wait until you are off air if you have Direct OBS feeds running.
 3. Restream Control downloads the release ZIP and SHA-256 file, verifies the package, stops Direct feeds, replaces only application files, and restarts.
 
 The prior packaged version is retained under `%LOCALAPPDATA%\RestreamControl\updates\backups`. Use `Restore Previous Version` in Settings to roll back application files. If an updated app cannot confirm a healthy startup, the updater restores and launches the prior version automatically.

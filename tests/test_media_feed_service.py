@@ -50,7 +50,7 @@ class MediaFeedServiceTests(unittest.TestCase):
         with mock.patch.object(Path, "open", return_value=log):
             self.assertEqual(media_feed_service.stream_activity(1), "playing")
 
-    def test_stream_activity_reports_ended_current_stream(self) -> None:
+    def test_stream_activity_reports_offline_current_stream(self) -> None:
         log = io.BytesIO(
             b"[2026-08-30T18:09:18] Starting runner, attempt 1, mode=Stable, delay=0s\n"
             b"[cli][info] Opening stream: 720p60 (hls)\n"
@@ -77,6 +77,7 @@ class MediaFeedServiceTests(unittest.TestCase):
         self.assertIn("--player-external-http", command)
         self.assertIn("--player-external-http-continuous", command)
         self.assertIn("--retry-open", command)
+        self.assertEqual(command[command.index("--stream-timeout") + 1], "20")
         self.assertNotIn("--stdout", command)
         self.assertNotIn("ffmpeg", command)
         self.assertEqual(command[-2:], ["https://twitch.tv/runner", "720p"])
@@ -208,13 +209,13 @@ class MediaFeedServiceTests(unittest.TestCase):
             ],
         )
 
-    def test_obs_video_detection_updates_running_status(self) -> None:
-        state = {"status": "running", "latency_mode": "Stable"}
-        with mock.patch.object(media_feed_service.app_state, "update_json",
-                               side_effect=lambda path, update: update(state)):
-            media_feed_service.set_obs_video_detected(2, True)
-        self.assertTrue(state["obs_video_detected"])
-        self.assertEqual(state["message"], "OBS video detected. Streamlink HTTP feed is running in Stable mode.")
+    def test_stream_activity_waits_for_reconnect_after_eof_or_read_timeout(self):
+        for terminal_line in (b"Stream ended", b"Error when reading from stream: Read timeout"):
+            with self.subTest(terminal_line=terminal_line):
+                log = io.BytesIO(b"[2026-08-30T18:09:18] Starting runner\n"
+                                 b"[cli][info] Opening stream: 720p60 (hls)\n" + terminal_line)
+                with mock.patch.object(Path, "open", return_value=log):
+                    self.assertEqual(media_feed_service.stream_activity(1), "reconnecting")
 
     def test_write_state_removes_retired_relay_fields(self) -> None:
         state = {
@@ -244,13 +245,6 @@ class MediaFeedServiceTests(unittest.TestCase):
         write.assert_not_called()
         self.assertEqual(states[1]["status"], "running")
         self.assertEqual(states[4]["status"], "stopped")
-
-    def test_stale_obs_check_cannot_update_replacement_worker(self):
-        state = {"status": "running", "worker_pid": 200, "obs_video_detected": False}
-        with mock.patch.object(media_feed_service.app_state, "update_json",
-                               side_effect=lambda path, update: update(state)):
-            media_feed_service.set_obs_video_detected(1, True, expected_worker_pid=100)
-        self.assertFalse(state["obs_video_detected"])
 
     def test_startup_grace_period_does_not_hide_a_failed_launch_forever(self):
         fresh = {"status": "starting", "worker_pid": 0,

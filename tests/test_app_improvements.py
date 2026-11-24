@@ -14,6 +14,7 @@ from urllib.error import URLError
 APP_DIR = Path(__file__).resolve().parents[1] / "app"
 os.environ.setdefault("RESTREAM_CONTROL_DATA_DIR", tempfile.mkdtemp(prefix="restream-control-tests-"))
 sys.path.insert(0, str(APP_DIR))
+import launch_crosskeys
 import restream_app
 
 
@@ -35,20 +36,63 @@ class UpdateErrorTests(unittest.TestCase):
         bind(panel, "apply_update_check_error", "_update_prepare_failed")
         return panel, callbacks
 
-    def test_failed_checks_display_error_after_worker_exits_and_restore_button(self):
-        for response in (URLError("offline"), "[]", "not json"):
-            with self.subTest(response=response):
-                panel, callbacks = self.panel()
-                connection = mock.Mock()
-                connection.__enter__ = mock.Mock(return_value=types.SimpleNamespace(read=lambda: str(response).encode()))
-                connection.__exit__ = mock.Mock(return_value=False)
-                with mock.patch.object(restream_app, "urlopen", side_effect=response if isinstance(response, Exception) else None,
-                                       return_value=connection):
-                    restream_app.RestreamApp.check_for_updates_worker(panel)
-                for callback, args in callbacks:
-                    callback(*args)
+    def test_failed_check_reports_manual_errors_and_leaves_startup_quiet(self):
+        for automatic in (False, True):
+            with self.subTest(automatic=automatic):
+                panel, _ = self.panel()
+                panel._update_check_pending = panel._update_check_manual = False
+                panel.run_background = mock.Mock()
+                bind(panel, "check_for_updates", "fetch_latest_release")
+                panel.check_for_updates(automatic=automatic)
+                _, _, failed = panel.run_background.call_args.args
+                failed("offline")
                 panel.update_check_button.configure.assert_called_with(state="normal")
-                self.assertIn("Update check failed:", panel.update_status_var.set.call_args.args[0])
+                self.assertFalse(panel._update_check_pending)
+                if automatic:
+                    panel.update_status_var.set.assert_not_called()
+                else:
+                    panel.update_status_var.set.assert_called_with("Update check failed: offline")
+
+    def test_fetch_rejects_offline_and_malformed_release_responses(self):
+        for response in (URLError("offline"), "[]", "not json", '{"tag_name": ""}'):
+            with self.subTest(response=response):
+                connection = mock.MagicMock()
+                connection.__enter__.return_value.read.return_value = str(response).encode()
+                with (
+                    mock.patch.object(restream_app, "urlopen",
+                                      side_effect=response if isinstance(response, Exception) else None,
+                                      return_value=connection),
+                    self.assertRaises((ValueError, RuntimeError, URLError)),
+                ):
+                    restream_app.RestreamApp.fetch_latest_release()
+
+    def test_startup_checks_once_unless_disabled_or_already_checked(self):
+        for enabled, already_checked in ((True, False), (False, False), (True, True)):
+            with self.subTest(enabled=enabled, already_checked=already_checked):
+                panel = types.SimpleNamespace(
+                    update_startup_var=mock.Mock(), _update_check_started=already_checked,
+                    check_for_updates=mock.Mock(),
+                )
+                panel.update_startup_var.get.return_value = enabled
+                restream_app.RestreamApp.check_for_updates_at_startup(panel)
+                if enabled and not already_checked:
+                    panel.check_for_updates.assert_called_once_with(automatic=True)
+                else:
+                    panel.check_for_updates.assert_not_called()
+
+    def test_newer_release_shows_notice_and_install_only_for_packaged_copy(self):
+        for frozen in (False, True):
+            with self.subTest(frozen=frozen):
+                panel, _ = self.panel()
+                panel.update_notice_button = mock.Mock()
+                with mock.patch.object(restream_app.app_state, "IS_FROZEN", frozen):
+                    result = ("v0.3.3", "https://example.invalid/release", "zip", "sha256")
+                    restream_app.RestreamApp.apply_update_check_result(panel, *result)
+                    panel.update_notice_button.pack.assert_called_once()
+                    self.assertEqual(panel.update_can_install, frozen)
+                    restream_app.RestreamApp.apply_update_check_result(panel, "v0.3.2", *result[1:])
+                    panel.update_notice_button.pack_forget.assert_called_once()
+                    self.assertFalse(panel.update_can_install)
 
     def test_download_and_verification_errors_restore_install_button(self):
         for step in ("download_file", "extract_verified_package"):
@@ -132,6 +176,37 @@ class LayoutOwnershipTests(unittest.TestCase):
         self.assertIn("Background 2P", candidates)
 
 
+class VlcLaunchTests(unittest.TestCase):
+    def test_restart_uses_saved_quality_device_and_latency_and_waits_for_a_new_window(self):
+        config = {"quality": "480p", "vlc_audio_device": "{test-device}", "vlc_latency": "Low latency"}
+        previous = types.SimpleNamespace(hwnd=100)
+        replacement = types.SimpleNamespace(hwnd=200)
+        with (
+            mock.patch.object(launch_crosskeys.app_state, "load_config", return_value=config),
+            mock.patch.object(launch_crosskeys, "close_runner_window") as close,
+            mock.patch.object(restream_app.stream_syncer, "list_runner_windows",
+                              side_effect=[{2: previous}, {2: previous}, {2: replacement}]) as windows,
+            mock.patch.object(launch_crosskeys.subprocess, "Popen") as launch,
+            mock.patch.object(launch_crosskeys.time, "sleep"),
+        ):
+            launch.return_value.poll.return_value = None
+            launch_crosskeys.launch_stream(2, launch_crosskeys.Runner("Runner", "runner"), restart=True)
+        command = launch.call_args.args[0]
+        close.assert_called_once_with(2)
+        self.assertEqual(windows.call_count, 3)
+        self.assertEqual(command[-1], "480p")
+        self.assertIn("--mmdevice-audio-device={test-device}", command[command.index("--player-args") + 1])
+        self.assertIn("--twitch-low-latency", command)
+
+    def test_process_failure_reaches_the_caller(self):
+        with (
+            mock.patch.object(restream_app.stream_syncer, "list_runner_windows", return_value={}),
+            mock.patch.object(launch_crosskeys.subprocess, "Popen", side_effect=OSError("launch failed")),
+            self.assertRaisesRegex(RuntimeError, "Could not start RUNNER 1.*launch failed"),
+        ):
+            launch_crosskeys.launch_stream(1, launch_crosskeys.Runner("Runner", "runner"))
+
+
 class BackgroundWorkTests(unittest.TestCase):
     def test_launch_context_allows_empty_unrelated_runner_rows(self):
         field = lambda value: types.SimpleNamespace(get=lambda: value)
@@ -155,13 +230,44 @@ class BackgroundWorkTests(unittest.TestCase):
         )
         bind(panel, "refresh_media_feeds")
         panel.refresh_media_feeds()
-        panel.refresh_media_feeds(check_obs_video=True)
+        panel.refresh_media_feeds()
         self.assertEqual(panel.run_background.call_count, 1)
         panel.run_background.call_args.args[1](({}, {}, {}))
         panel.render_media_feed_snapshot.assert_not_called()
         self.assertEqual(panel.run_background.call_count, 2)
         panel.run_background.call_args.args[1](({}, {}, {}))
         panel.render_media_feed_snapshot.assert_called_once_with(4, {}, {}, {})
+
+    def test_cancel_queued_feed_leaves_other_starts_and_live_feeds_alone(self):
+        panel = types.SimpleNamespace(
+            media_feed_status_var=mock.Mock(), log_status=mock.Mock(),
+            refresh_media_feeds=mock.Mock(), apply_saved_crops_after_replace=mock.Mock(),
+            after=mock.Mock(), publish_race=mock.Mock(),
+        )
+        bind(panel, "start_media_slots_staggered")
+        bind(panel, "stop_media_slot")
+        runners = {n: types.SimpleNamespace(display_name=f"R{n}", twitch_name=f"runner{n}")
+                   for n in (1, 2, 3)}
+        with (
+            mock.patch.object(restream_app.media_feed_service, "start_slot") as start,
+            mock.patch.object(restream_app.media_feed_service, "stop_slot") as stop,
+        ):
+            panel.start_media_slots_staggered(4, runners, [1, 2, 3], "best", [], "")
+            self.assertEqual(list(panel._media_queued_runners), [2, 3])
+            panel.stop_media_slot(2)
+            panel.after.call_args.args[1]()
+            self.assertEqual([call.args[0] for call in start.call_args_list], [1, 3])
+            stop.assert_not_called()
+            self.assertEqual([list(call.args[1]) for call in panel.publish_race.call_args_list], [[1], [3]])
+            self.assertFalse(panel._media_bulk_start_active)
+
+    def test_playing_requires_obs_and_current_streamlink_playback(self):
+        status = restream_app.RestreamApp.media_row_status
+        state = {"status": "running"}
+        self.assertEqual(status(state, "playing", "disconnected")[0], "Waiting for OBS")
+        self.assertEqual(status(state, "reconnecting", "playing")[0], "Reconnecting")
+        self.assertEqual(status(state, "playing", "buffering")[0], "Buffering")
+        self.assertEqual(status(state, "playing", "playing")[0], "Playing")
 
     def test_four_checks_overlap_and_keep_runner_associations(self):
         barrier = threading.Barrier(4)

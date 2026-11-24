@@ -22,7 +22,7 @@ class LayoutGeometryTests(unittest.TestCase):
         self.assertIn("Update Streamlink to 8.0.0 or newer", detail)
 
     def test_release_version_is_0_3_1(self) -> None:
-        self.assertEqual(restream_app.APP_VERSION, "0.3.1")
+        self.assertEqual(restream_app.APP_VERSION, "0.3.2")
 
     def test_preferred_direct_quality_includes_uncommon_native_sizes(self) -> None:
         qualities = restream_app.PREFERRED_DIRECT_QUALITY.split(",")

@@ -58,6 +58,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "media_feed_port_base": 5001,
     "media_feed_quality": "Preferred",
     "media_feed_latency": "Stable",
+    "vlc_latency": "Stable",
+    "check_updates_on_startup": True,
     "playback_engine": "VLC Windows",
     "obs_websocket": {
         "host": "localhost",

@@ -12,7 +12,7 @@ app\start_restream_app.bat
 ## Build A Release ZIP
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_windows_release.ps1 -Version v0.3.1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build_windows_release.ps1 -Version v0.3.2
 ```
 
 The release ZIP is created under:

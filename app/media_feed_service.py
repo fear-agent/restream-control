@@ -22,6 +22,7 @@ FEED_DIR = app_state.STATE_DIR / "media_feeds"
 WORKER_SCRIPT = app_state.APP_DIR / "media_feed_worker.py"
 MAX_AUTO_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
+RETRY_RESET_SECONDS = 120
 STABLE_LATENCY_MODE = "Stable"
 LOW_LATENCY_MODE = "Low latency"
 SYNC_FILTER_NAME = "Restream Control Sync Delay"
@@ -99,15 +100,22 @@ def stream_activity(slot: int) -> str:
     start_index = text.rfind("] Starting ")
     if start_index >= 0:
         text = text[start_index:]
-    offline_index = text.rfind("Stream not available")
-    # An HTTP request only proves that OBS reached the local server. Streamlink
-    # can accept that request while the Twitch channel is still unavailable.
-    playing_index = text.rfind("Opening stream:")
-    if offline_index > playing_index:
-        return "offline"
-    if playing_index >= 0:
-        return "playing"
-    return "unknown"
+    markers = {
+        "Stream not available": "offline",
+        "Opening stream:": "playing",
+        "Got HTTP request": "waiting",
+        "Stream ended": "reconnecting",
+        "No new segments": "reconnecting",
+        "No data returned from stream": "reconnecting",
+        "Failed to read data from stream": "reconnecting",
+        "Error when reading from stream": "reconnecting",
+    }
+    index, activity = max((text.rfind(marker), activity) for marker, activity in markers.items())
+    if index < 0:
+        return "unknown"
+    if activity == "waiting":
+        return "reconnecting" if "Opening stream:" in text[:index] else "unknown"
+    return activity
 
 
 def load_state(slot: int) -> dict[str, Any]:
@@ -139,6 +147,7 @@ def updated_state(slot: int, existing: dict[str, Any], updates: dict[str, Any]) 
         "relay_buffered_packets",
         "relay_control_supported",
         "relay_delay_seconds",
+        "obs_video_detected",
     ):
         existing.pop(obsolete_key, None)
     layout = normalize_layout(existing.get("layout"))
@@ -237,7 +246,8 @@ def stop_slot(slot: int) -> None:
                 os.kill(pid, 15)
             except OSError:
                 pass
-    stop_obs_receiver(slot, layout)
+    if state.get("status") in {"starting", "running", "retrying", "failed"}:
+        stop_obs_receiver(slot, layout)
     write_state(
         slot,
         status="stopped",
@@ -245,7 +255,6 @@ def stop_slot(slot: int) -> None:
         worker_pid=0,
         streamlink_pid=0,
         http_port=0,
-        obs_video_detected=False,
     )
 
 
@@ -269,7 +278,7 @@ def streamlink_command(
     latency_mode: str,
     http_port: int,
 ) -> list[str]:
-    command = ["streamlink"]
+    command = ["streamlink", "--loglevel", "info"]
     if normalize_latency_mode(latency_mode) == LOW_LATENCY_MODE:
         command.append("--twitch-low-latency")
     else:
@@ -278,6 +287,7 @@ def streamlink_command(
         "--stream-segment-attempts", "5",
         "--stream-segment-threads", "2",
         "--retry-open", "3",
+        "--stream-timeout", "20",
         "--player-external-http",
         "--player-external-http-interface", "127.0.0.1",
         "--player-external-http-port", str(int(http_port)),
@@ -383,23 +393,6 @@ def stop_obs_receiver(slot: int, layout: str | int | None) -> None:
         pass
 
 
-def set_obs_video_detected(slot: int, detected: bool, expected_worker_pid: int | None = None) -> None:
-    """Persist an explicit OBS signal check so automatic UI refreshes keep it."""
-    def update(state):
-        if state.get("status") != "running" or (
-            expected_worker_pid is not None and state.get("worker_pid") != expected_worker_pid
-        ):
-            return state
-        latency = normalize_latency_mode(str(state.get("latency_mode") or STABLE_LATENCY_MODE))
-        message = (
-            f"OBS video detected. Streamlink HTTP feed is running in {latency} mode."
-            if detected
-            else f"Streamlink HTTP feed ready in {latency} mode. Waiting for OBS video..."
-        )
-        return updated_state(slot, state, {"obs_video_detected": bool(detected), "message": message})
-    app_state.update_json(state_path(slot), update)
-
-
 def start_slot(
     slot: int,
     display_name: str,
@@ -435,7 +428,6 @@ def start_slot(
         latency_mode=normalized_latency,
         layout=normalized_layout,
         worker_pid=0,
-        obs_video_detected=False,
     )
 
     worker_args = [
@@ -476,7 +468,13 @@ def start_slot(
     except Exception as exc:
         write_state(slot, status="failed", worker_pid=0, message=f"Could not start feed worker: {exc}")
         raise
-    write_state(slot, worker_pid=process.pid, message="Starting Streamlink HTTP feed...")
+
+    def record_worker(state):
+        if state.get("status") == "starting" and not state.get("worker_pid"):
+            return updated_state(slot, state, {"worker_pid": process.pid})
+        return state
+
+    app_state.update_json(state_path(slot), record_worker)
 
 
 def restart_slot_with_delay(slot: int, delay_seconds: float | int | str) -> None:
@@ -555,13 +553,12 @@ def worker_main(argv: list[str] | None = None) -> int:
     try:
         # OBS decodes this runner once over loopback HTTP. Stream, Tracker,
         # Timer, and Facecam are scene-item references to this one input.
-        for attempt in range(1, MAX_AUTO_RETRIES + 1):
+        attempt = 1
+        active_latency = requested_latency
+        while True:
             streamlink = None
+            ready_at = None
             try:
-                # A requested low-latency connection gets one attempt. If it
-                # fails, retry with Streamlink's normal HLS edge so one
-                # incompatible Twitch channel cannot remain unusable.
-                active_latency = requested_latency if attempt == 1 else STABLE_LATENCY_MODE
                 streamlink_cmd = streamlink_command(
                     args.twitch_name,
                     args.quality,
@@ -578,15 +575,14 @@ def worker_main(argv: list[str] | None = None) -> int:
                     twitch_name=args.twitch_name,
                     quality=args.quality,
                     latency_mode=active_latency,
-                    delay_seconds=delay,
                     layout=layout,
                     transport="http",
                     http_port=http_port,
-                    obs_video_detected=False,
                 )
+                active_delay = normalize_delay(load_state(slot).get("delay_seconds", delay))
                 log_file.write(
                     f"\n[{datetime.now().isoformat(timespec='seconds')}] Starting {args.twitch_name}, "
-                    f"attempt {attempt}, mode={active_latency}, delay={delay:g}s\n"
+                    f"attempt {attempt}, mode={active_latency}, delay={active_delay:g}s\n"
                 )
                 log_file.flush()
                 streamlink = subprocess.Popen(
@@ -608,12 +604,12 @@ def worker_main(argv: list[str] | None = None) -> int:
                     streamlink_pid=streamlink.pid,
                     transport="http",
                     http_port=http_port,
-                    obs_video_detected=False,
                     retry_attempt=attempt,
                 )
                 # The HTTP listener is ready before OBS reconnects. Unlike the
                 # old UDP relay, no packets from the new timestamp timeline can
                 # accumulate in OBS before its demuxer is reopened.
+                ready_at = time.monotonic()
                 restart_obs_receiver(slot, layout, log_file)
                 while True:
                     if streamlink.poll() is not None:
@@ -626,6 +622,9 @@ def worker_main(argv: list[str] | None = None) -> int:
                 if streamlink is not None and streamlink.poll() is None:
                     streamlink.terminate()
 
+            if ready_at is not None and time.monotonic() - ready_at >= RETRY_RESET_SECONDS:
+                attempt = 1
+            active_latency = STABLE_LATENCY_MODE
             if attempt >= MAX_AUTO_RETRIES:
                 write_state(
                     slot,
@@ -648,5 +647,6 @@ def worker_main(argv: list[str] | None = None) -> int:
                 retry_attempt=attempt,
             )
             time.sleep(RETRY_DELAY_SECONDS)
+            attempt += 1
     finally:
         log_file.close()
